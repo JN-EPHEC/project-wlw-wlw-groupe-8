@@ -1,333 +1,555 @@
-import { Image } from 'expo-image';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useRef } from "react";
 import {
-  Alert,
+  Animated,
   KeyboardAvoidingView,
   Platform,
-  ScrollView,
+  Pressable,
+  SafeAreaView,
   StyleSheet,
-  TextInput,
-  TouchableOpacity,
+  Text,
   View,
-} from 'react-native';
+} from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import { StatusBar } from "expo-status-bar";
+import { router } from "expo-router";
 
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
+const ACCENT = "#12DFD8";
 
-type AuthMode = 'login' | 'signup';
+const BackdropBlobs = () => {
+  const blob1Anim = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
+  const blob2Anim = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
+  const blob3Anim = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
+  const blob4Anim = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
+  const blob5Anim = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
 
-type LoginForm = {
-  email: string;
-  password: string;
-};
+  const opacity1 = useRef(new Animated.Value(0.4)).current;
+  const opacity2 = useRef(new Animated.Value(0.4)).current;
+  const opacity3 = useRef(new Animated.Value(0.4)).current;
+  const opacity4 = useRef(new Animated.Value(0.4)).current;
+  const opacity5 = useRef(new Animated.Value(0.4)).current;
 
-type SignUpForm = {
-  fullName: string;
-  email: string;
-  password: string;
-  confirmPassword: string;
-};
-
-const createInitialLoginForm = (): LoginForm => ({
-  email: '',
-  password: '',
-});
-
-const createInitialSignUpForm = (): SignUpForm => ({
-  fullName: '',
-  email: '',
-  password: '',
-  confirmPassword: '',
-});
-
-const isEmailValid = (email: string) => /\S+@\S+\.\S+/.test(email.trim());
-
-export default function HomeScreen() {
-  const [mode, setMode] = useState<AuthMode>('login');
-  const [loginForm, setLoginForm] = useState<LoginForm>(createInitialLoginForm);
-  const [signUpForm, setSignUpForm] = useState<SignUpForm>(createInitialSignUpForm);
-
-  const isLoginValid = useMemo(
-    () => isEmailValid(loginForm.email) && loginForm.password.trim().length >= 6,
-    [loginForm.email, loginForm.password]
-  );
-
-  const isSignUpValid = useMemo(() => {
-    const { fullName, email, password, confirmPassword } = signUpForm;
-    return (
-      fullName.trim().length > 1 &&
-      isEmailValid(email) &&
-      password.trim().length >= 6 &&
-      password === confirmPassword
-    );
-  }, [signUpForm]);
-
-  const handleLoginChange =
-    (field: keyof LoginForm) =>
-    (value: string) =>
-      setLoginForm((prev) => ({ ...prev, [field]: value }));
-
-  const handleSignUpChange =
-    (field: keyof SignUpForm) =>
-    (value: string) =>
-      setSignUpForm((prev) => ({ ...prev, [field]: value }));
-
-  const handleSwitchMode = (targetMode: AuthMode) => {
-    if (targetMode === mode) return;
-
-    setMode(targetMode);
-
-    if (targetMode === 'login') {
-      setSignUpForm(createInitialSignUpForm());
-    } else {
-      setLoginForm(createInitialLoginForm());
-    }
-  };
-
-  const handleLogin = () => {
-    if (!isLoginValid) {
-      Alert.alert('Connexion', 'Veuillez saisir un email valide et un mot de passe de 6 caractères.');
-      return;
-    }
-
-    Alert.alert('Connexion', 'Connexion réussie (simulation).');
-  };
-
-  const handleSignUp = () => {
-    if (!isSignUpValid) {
-      Alert.alert(
-        'Inscription',
-        "Vérifiez vos informations : email valide, mot de passe d'au moins 6 caractères et confirmation identique."
+  useEffect(() => {
+    const createLoop = (anim: Animated.ValueXY, opacity: Animated.Value, delay: number) =>
+      Animated.loop(
+        Animated.sequence([
+          Animated.parallel([
+            Animated.timing(anim, {
+              toValue: { x: 6, y: -14 },
+              duration: 2200,
+              delay,
+              useNativeDriver: true,
+            }),
+            Animated.timing(opacity, {
+              toValue: 0.55,
+              duration: 2200,
+              delay,
+              useNativeDriver: true,
+            }),
+          ]),
+          Animated.parallel([
+            Animated.timing(anim, {
+              toValue: { x: 12, y: 4 },
+              duration: 2200,
+              useNativeDriver: true,
+            }),
+            Animated.timing(opacity, {
+              toValue: 0.65,
+              duration: 2200,
+              useNativeDriver: true,
+            }),
+          ]),
+          Animated.parallel([
+            Animated.timing(anim, {
+              toValue: { x: -6, y: 12 },
+              duration: 2200,
+              useNativeDriver: true,
+            }),
+            Animated.timing(opacity, {
+              toValue: 0.45,
+              duration: 2200,
+              useNativeDriver: true,
+            }),
+          ]),
+          Animated.parallel([
+            Animated.timing(anim, {
+              toValue: { x: 0, y: 0 },
+              duration: 2200,
+              useNativeDriver: true,
+            }),
+            Animated.timing(opacity, {
+              toValue: 0.4,
+              duration: 2200,
+              useNativeDriver: true,
+            }),
+          ]),
+        ])
       );
-      return;
-    }
 
-    Alert.alert('Inscription', 'Compte créé (simulation).');
-    setMode('login');
-    setSignUpForm(createInitialSignUpForm());
-  };
+    const loops = [
+      createLoop(blob1Anim, opacity1, 0),
+      createLoop(blob2Anim, opacity2, 800),
+      createLoop(blob3Anim, opacity3, 1600),
+      createLoop(blob4Anim, opacity4, 2400),
+      createLoop(blob5Anim, opacity5, 3200),
+    ];
 
-  const renderLoginForm = () => (
-    <ThemedView style={styles.formSection}>
-      <ThemedText type="subtitle">Se connecter</ThemedText>
-      <AuthInput
-        placeholder="Email"
-        keyboardType="email-address"
-        autoCapitalize="none"
-        value={loginForm.email}
-        onChangeText={handleLoginChange('email')}
-        returnKeyType="next"
-      />
-      <AuthInput
-        placeholder="Mot de passe"
-        secureTextEntry
-        value={loginForm.password}
-        onChangeText={handleLoginChange('password')}
-        returnKeyType="done"
-      />
-      <PrimaryButton label="Connexion" onPress={handleLogin} disabled={!isLoginValid} />
-      <TouchableOpacity>
-        <ThemedText style={styles.linkText}>Mot de passe oublié ?</ThemedText>
-      </TouchableOpacity>
-    </ThemedView>
-  );
+    loops.forEach((loop) => loop.start());
 
-  const renderSignUpForm = () => (
-    <ThemedView style={styles.formSection}>
-      <ThemedText type="subtitle">Créer un compte</ThemedText>
-      <AuthInput
-        placeholder="Nom complet"
-        value={signUpForm.fullName}
-        onChangeText={handleSignUpChange('fullName')}
-        returnKeyType="next"
-      />
-      <AuthInput
-        placeholder="Email"
-        keyboardType="email-address"
-        autoCapitalize="none"
-        value={signUpForm.email}
-        onChangeText={handleSignUpChange('email')}
-        returnKeyType="next"
-      />
-      <AuthInput
-        placeholder="Mot de passe (min. 6 caractères)"
-        secureTextEntry
-        value={signUpForm.password}
-        onChangeText={handleSignUpChange('password')}
-        returnKeyType="next"
-      />
-      <AuthInput
-        placeholder="Confirmer le mot de passe"
-        secureTextEntry
-        value={signUpForm.confirmPassword}
-        onChangeText={handleSignUpChange('confirmPassword')}
-        returnKeyType="done"
-      />
-      <PrimaryButton label="Créer mon compte" onPress={handleSignUp} disabled={!isSignUpValid} />
-    </ThemedView>
-  );
+    return () => loops.forEach((loop) => loop.stop());
+  }, [blob1Anim, blob2Anim, blob3Anim, blob4Anim, blob5Anim, opacity1, opacity2, opacity3, opacity4, opacity5]);
 
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#F5E6D3', dark: '#140D0B' }}
-      headerImage={
-        <Image source={require('@/assets/images/partial-react-logo.png')} style={styles.headerIllustration} />
-      }>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-          <ThemedView style={styles.heroSection}>
-            <ThemedText type="title">Bienvenue sur SpeedEvents</ThemedText>
-            <ThemedText style={styles.heroSubtitle}>
-              Gère tes événements, invite tes participants et suis tes statistiques en temps réel.
-            </ThemedText>
-          </ThemedView>
-
-          <View style={styles.modeSwitcher}>
-            <TouchableOpacity
-              style={[styles.modeButton, mode === 'login' && styles.modeButtonActive]}
-              onPress={() => handleSwitchMode('login')}>
-              <ThemedText type="defaultSemiBold" style={mode === 'login' ? styles.modeTextActive : styles.modeText}>
-                Connexion
-              </ThemedText>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.modeButton, mode === 'signup' && styles.modeButtonActive]}
-              onPress={() => handleSwitchMode('signup')}>
-              <ThemedText
-                type="defaultSemiBold"
-                style={mode === 'signup' ? styles.modeTextActive : styles.modeText}>
-                Inscription
-              </ThemedText>
-            </TouchableOpacity>
-          </View>
-
-          {mode === 'login' ? renderLoginForm() : renderSignUpForm()}
-
-          <ThemedView style={styles.exploreSection}>
-            <ThemedText type="defaultSemiBold">Découvre SpeedEvents</ThemedText>
-            <ThemedText style={styles.exploreText}>
-              Après ta connexion, tu pourras créer des événements, gérer les inscriptions et suivre les performances
-              de tes soirées en un coup d’œil.
-            </ThemedText>
-          </ThemedView>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </ParallaxScrollView>
+    <>
+      <Animated.View
+        style={[
+          styles.blob,
+          styles.blob1,
+          { transform: blob1Anim.getTranslateTransform(), opacity: opacity1 },
+        ]}
+      />
+      <Animated.View
+        style={[
+          styles.blob,
+          styles.blob2,
+          { transform: blob2Anim.getTranslateTransform(), opacity: opacity2 },
+        ]}
+      />
+      <Animated.View
+        style={[
+          styles.blob,
+          styles.blob3,
+          { transform: blob3Anim.getTranslateTransform(), opacity: opacity3 },
+        ]}
+      />
+      <Animated.View
+        style={[
+          styles.blob,
+          styles.blob4,
+          { transform: blob4Anim.getTranslateTransform(), opacity: opacity4 },
+        ]}
+      />
+      <Animated.View
+        style={[
+          styles.blob,
+          styles.blob5,
+          { transform: blob5Anim.getTranslateTransform(), opacity: opacity5 },
+        ]}
+      />
+    </>
   );
-}
-
-type AuthInputProps = React.ComponentProps<typeof TextInput>;
-
-const AuthInput = ({ style, ...props }: AuthInputProps) => (
-  <TextInput
-    style={[styles.input, style]}
-    placeholderTextColor="#7F8A96"
-    autoCapitalize="none"
-    {...props}
-  />
-);
-
-type PrimaryButtonProps = {
-  label: string;
-  onPress: () => void;
-  disabled?: boolean;
 };
 
-const PrimaryButton = ({ label, onPress, disabled }: PrimaryButtonProps) => (
-  <TouchableOpacity
-    style={[styles.primaryButton, disabled && styles.primaryButtonDisabled]}
-    onPress={onPress}
-    disabled={disabled}>
-    <ThemedText type="defaultSemiBold" style={styles.primaryButtonText}>
-      {label}
-    </ThemedText>
-  </TouchableOpacity>
-);
+const ParticleLayer = () => {
+  const particles = Array.from({ length: 6 }).map((_, index) => {
+    const opacity = useRef(new Animated.Value(0)).current;
+    const scale = useRef(new Animated.Value(0)).current;
+
+    useEffect(() => {
+      const loop = Animated.loop(
+        Animated.sequence([
+          Animated.parallel([
+            Animated.timing(opacity, {
+              toValue: 0.8,
+              duration: 1800,
+              delay: index * 400,
+              useNativeDriver: true,
+            }),
+            Animated.timing(scale, {
+              toValue: 1,
+              duration: 1800,
+              delay: index * 400,
+              useNativeDriver: true,
+            }),
+          ]),
+          Animated.parallel([
+            Animated.timing(opacity, {
+              toValue: 0,
+              duration: 1800,
+              useNativeDriver: true,
+            }),
+            Animated.timing(scale, {
+              toValue: 0,
+              duration: 1800,
+              useNativeDriver: true,
+            }),
+          ]),
+        ])
+      );
+      loop.start();
+      return () => loop.stop();
+    }, [opacity, scale, index]);
+
+    const positions = [
+      styles.particle1,
+      styles.particle2,
+      styles.particle3,
+      styles.particle4,
+      styles.particle5,
+      styles.particle6,
+    ];
+
+    return (
+      <Animated.View
+        key={`particle-${index}`}
+        style={[
+          styles.particle,
+          positions[index],
+          {
+            opacity,
+            transform: [{ scale }],
+          },
+        ]}
+      />
+    );
+  });
+
+  return <>{particles}</>;
+};
+
+const AnimatedCard = ({
+  emoji,
+  title,
+  subtitle,
+  onPress,
+}: {
+  emoji: string;
+  title: string;
+  subtitle: string;
+  onPress: () => void;
+}) => {
+  const scale = useRef(new Animated.Value(1)).current;
+  const shimmer = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.loop(
+      Animated.timing(shimmer, {
+        toValue: 1,
+        duration: 2800,
+        useNativeDriver: true,
+      })
+    ).start();
+  }, [shimmer]);
+
+  const shimmerTranslate = shimmer.interpolate({
+    inputRange: [0, 1],
+    outputRange: [-1, 1],
+  });
+
+  const handlePressIn = () => {
+    Animated.spring(scale, {
+      toValue: 0.96,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const handlePressOut = () => {
+    Animated.spring(scale, {
+      toValue: 1,
+      friction: 5,
+      tension: 120,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  return (
+    <Animated.View style={{ transform: [{ scale }] }}>
+      <Pressable
+        onPress={onPress}
+        onPressIn={handlePressIn}
+        onPressOut={handlePressOut}
+        style={({ pressed }) => [styles.roleCard, pressed && styles.roleCardPressed]}
+      >
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.shimmer,
+            {
+              transform: [
+                {
+                  translateX: shimmerTranslate.interpolate({
+                    inputRange: [-1, 1],
+                    outputRange: [-400, 400],
+                  }),
+                },
+              ],
+            },
+          ]}
+        />
+        <View style={styles.emojiCircle}>
+          <Text style={styles.emoji}>{emoji}</Text>
+        </View>
+        <Text style={styles.cardTitle}>{title}</Text>
+        <Text style={styles.cardSubtitle}>{subtitle}</Text>
+      </Pressable>
+    </Animated.View>
+  );
+};
+
+const HomeScreen = () => {
+  const contentOpacity = useRef(new Animated.Value(0)).current;
+  const contentTranslate = useRef(new Animated.Value(40)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(contentOpacity, {
+        toValue: 1,
+        duration: 900,
+        useNativeDriver: true,
+      }),
+      Animated.timing(contentTranslate, {
+        toValue: 0,
+        duration: 900,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [contentOpacity, contentTranslate]);
+
+  return (
+    <LinearGradient
+      colors={["#FFD3E6", "#FFC0DA", "#FFABD0", "#FF9AC7"]}
+      start={{ x: 0.5, y: 0 }}
+      end={{ x: 0.5, y: 1 }}
+      style={styles.gradient}
+    >
+      <StatusBar style="light" />
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        style={styles.flex}
+      >
+        <SafeAreaView style={styles.safeArea}>
+          <View style={styles.container}>
+            <BackdropBlobs />
+            <ParticleLayer />
+
+            <Animated.View
+              style={[
+                styles.content,
+                {
+                  opacity: contentOpacity,
+                  transform: [{ translateY: contentTranslate }],
+                },
+              ]}
+            >
+              <View style={styles.header}>
+                <Text style={styles.title}>SpeedEvent</Text>
+                <Text style={styles.subtitle}>Démarrons ensemble votre expérience</Text>
+              </View>
+
+              <View style={styles.cardsContainer}>
+                <AnimatedCard
+                  emoji="🤝"
+                  title="Prestataire"
+                  subtitle="Je suis un prestataire d'événements"
+                  onPress={() => router.push("/(auth)/register-provider")}
+                />
+                <AnimatedCard
+                  emoji="👥"
+                  title="Client"
+                  subtitle="Je veux créer un événement"
+                  onPress={() => router.push("/(auth)/register-client")}
+                />
+              </View>
+
+              <View style={styles.footer}>
+                <Pressable onPress={() => router.push("/(auth)/login")}>
+                  <Text style={styles.footerLink}>
+                    Vous avez déjà un compte ? Se connecter
+                  </Text>
+                </Pressable>
+              </View>
+            </Animated.View>
+          </View>
+        </SafeAreaView>
+      </KeyboardAvoidingView>
+    </LinearGradient>
+  );
+};
+
+export default HomeScreen;
 
 const styles = StyleSheet.create({
+  gradient: {
+    flex: 1,
+  },
+  flex: {
+    flex: 1,
+  },
+  safeArea: {
+    flex: 1,
+  },
+  container: {
+    flex: 1,
+    position: "relative",
+  },
   content: {
-    padding: 20,
+    flex: 1,
+    paddingHorizontal: 24,
+    paddingTop: 80,
     paddingBottom: 32,
+    justifyContent: "space-between",
+  },
+  header: {
+    alignItems: "center",
+    gap: 12,
+  },
+  title: {
+    fontSize: 36,
+    fontWeight: "800",
+    letterSpacing: -1,
+    textAlign: "center",
+    textShadowColor: "rgba(18, 223, 216, 0.3)",
+    textShadowOffset: { width: 0, height: 6 },
+    textShadowRadius: 12,
+    color: ACCENT,
+  },
+  subtitle: {
+    fontSize: 16,
+    color: "#374151",
+    textAlign: "center",
+    opacity: 0.9,
+    fontWeight: "500",
+  },
+  cardsContainer: {
+    flex: 1,
+    justifyContent: "center",
     gap: 24,
   },
-  heroSection: {
-    gap: 8,
-    padding: 16,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.72)',
-  },
-  heroSubtitle: {
-    lineHeight: 20,
-  },
-  modeSwitcher: {
-    flexDirection: 'row',
-    borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.6)',
-    padding: 4,
-  },
-  modeButton: {
-    flex: 1,
-    paddingVertical: 10,
-    borderRadius: 10,
-    alignItems: 'center',
-  },
-  modeButtonActive: {
-    backgroundColor: '#00B8A9',
-  },
-  modeText: {
-    color: '#1F1F1F',
-  },
-  modeTextActive: {
-    color: '#FFFFFF',
-  },
-  formSection: {
-    gap: 12,
-    padding: 16,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.88)',
-  },
-  input: {
-    borderRadius: 12,
+  roleCard: {
+    backgroundColor: "rgba(255,255,255,0.22)",
+    borderRadius: 24,
+    padding: 24,
+    alignItems: "center",
     borderWidth: 1,
-    borderColor: '#D3D9E0',
-    paddingHorizontal: 14,
-    paddingVertical: Platform.OS === 'ios' ? 14 : 10,
-    backgroundColor: '#F9FAFB',
-    fontSize: 16,
-    color: '#111827',
+    borderColor: "rgba(255,255,255,0.6)",
+    shadowColor: "#ff6b9d",
+    shadowOffset: { width: 0, height: 16 },
+    shadowOpacity: 0.25,
+    shadowRadius: 32,
+    overflow: "hidden",
   },
-  primaryButton: {
-    backgroundColor: '#00B8A9',
-    borderRadius: 12,
-    paddingVertical: 14,
-    alignItems: 'center',
+  roleCardPressed: {
+    borderColor: ACCENT,
+    shadowColor: ACCENT,
+    shadowOpacity: 0.35,
   },
-  primaryButtonDisabled: {
-    backgroundColor: '#00B8A9',
+  shimmer: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    width: "100%",
+    height: "100%",
+    borderRadius: 24,
+    backgroundColor: "rgba(255,255,255,0.25)",
+    opacity: 0.4,
   },
-  primaryButtonText: {
-    color: '#FFFFFF',
+  emojiCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 72,
+    backgroundColor: "rgba(18,223,216,0.12)",
+    borderWidth: 2,
+    borderColor: "rgba(18,223,216,0.35)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 20,
+    shadowColor: ACCENT,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
   },
-  exploreSection: {
-    gap: 8,
-    padding: 16,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.6)',
+  emoji: {
+    fontSize: 36,
   },
-  exploreText: {
-    lineHeight: 20,
+  cardTitle: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: "#0b4240",
+    marginBottom: 12,
+    textAlign: "center",
   },
-  headerIllustration: {
-    height: 200,
-    width: 260,
-    position: 'absolute',
-    bottom: -16,
-    left: -20,
+  cardSubtitle: {
+    fontSize: 15,
+    color: "#374151",
+    opacity: 0.85,
+    textAlign: "center",
+    lineHeight: 22,
   },
-  linkText: {
-    color: '#00B8A9',
-    textDecorationLine: 'underline',
-    textAlign: 'center',
+  footer: {
+    alignItems: "center",
+  },
+  footerLink: {
+    fontSize: 14,
+    color: ACCENT,
+    textAlign: "center",
+  },
+  blob: {
+    position: "absolute",
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.3)",
+    shadowColor: "rgba(255,255,255,0.4)",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 24,
+  },
+  blob1: {
+    width: 140,
+    height: 140,
+    top: "8%",
+    left: -30,
+  },
+  blob2: {
+    width: 100,
+    height: 100,
+    top: "25%",
+    right: -20,
+  },
+  blob3: {
+    width: 120,
+    height: 120,
+    bottom: "15%",
+    left: 10,
+  },
+  blob4: {
+    width: 60,
+    height: 60,
+    top: "50%",
+    right: 30,
+  },
+  blob5: {
+    width: 80,
+    height: 80,
+    bottom: "35%",
+    right: -15,
+  },
+  particle: {
+    position: "absolute",
+    width: 5,
+    height: 5,
+    borderRadius: 999,
+    backgroundColor: "rgba(18,223,216,0.6)",
+  },
+  particle1: {
+    top: "15%",
+    left: "18%",
+  },
+  particle2: {
+    top: "22%",
+    right: "18%",
+  },
+  particle3: {
+    top: "42%",
+    left: "12%",
+  },
+  particle4: {
+    bottom: "32%",
+    right: "24%",
+  },
+  particle5: {
+    bottom: "20%",
+    left: "30%",
+  },
+  particle6: {
+    top: "38%",
+    right: "32%",
   },
 });
