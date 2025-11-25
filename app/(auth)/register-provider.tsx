@@ -4,6 +4,7 @@ import { router } from "expo-router";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
+  Animated,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -81,14 +82,22 @@ export default function RegisterProviderScreen() {
   const [showConfirm, setShowConfirm] = useState(false);
 
   // jolis effets d’entrée
-  const contentAnim = useRef(new AnimatedValue(0)).current;
-  const translateYAnim = useRef(new AnimatedValue(30)).current;
+  const contentAnim = useRef(new Animated.Value(0)).current;
+  const translateYAnim = useRef(new Animated.Value(30)).current;
   useEffect(() => {
-    AnimatedParallel([
-      AnimatedTiming(contentAnim, 800),
-      AnimatedTiming(translateYAnim, 800, 0),
-    ]);
-  }, []);
+    Animated.parallel([
+      Animated.timing(contentAnim, {
+        toValue: 1,
+        duration: 800,
+        useNativeDriver: true,
+      }),
+      Animated.timing(translateYAnim, {
+        toValue: 0,
+        duration: 800,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [contentAnim, translateYAnim]);
 
   const isFormValid = useMemo(() => {
     const v = validation;
@@ -520,18 +529,7 @@ export default function RegisterProviderScreen() {
   );
 }
 
-/* --------- petits helpers anim (sans import Animated direct dans tout le fichier) --------- */
-import { Animated } from "react-native";
 const AnimatedView = Animated.View;
-function AnimatedTiming(value: Animated.Value, duration = 800, toValue = 1) {
-  return Animated.timing(value, { toValue, duration, useNativeDriver: true });
-}
-function AnimatedParallel(anims: Animated.CompositeAnimation[]) {
-  Animated.parallel(anims).start();
-}
-function AnimatedValue(v: number) {
-  return new Animated.Value(v);
-}
 const AnimatedContainer = ({
   children,
   contentAnim,
