@@ -9,42 +9,59 @@ import React, { useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import {
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  TextInput,
-  View,
+    KeyboardAvoidingView,
+    Platform,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    TextInput,
+    View,
 } from 'react-native';
 
-export default function PrestataireFirstInfos() {
+const getEmailError = (value: string) => {
+  if (!value.trim()) return 'Ce champ est obligatoire';
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(value.trim())) return 'Adresse email invalide';
+  return '';
+};
+
+const getPasswordError = (value: string) => {
+  if (!value) return 'Ce champ est obligatoire';
+  if (value.length < 6) return '6 caractères minimum';
+  return '';
+};
+
+const getConfirmError = (value: string, password: string) => {
+  if (!value) return 'Ce champ est obligatoire';
+  if (value !== password) return 'Les mots de passe ne correspondent pas';
+  return '';
+};
+
+export default function PrestataireCredentials() {
   const colors = useThemeColors();
   const router = useRouter();
-  const [lastName, setLastName] = useState('');
-  const [firstName, setFirstName] = useState('');
-  const [vat, setVat] = useState('');
+  const [accepted, setAccepted] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [touched, setTouched] = useState({
-    lastName: false,
-    firstName: false,
-    vat: false,
+    email: false,
+    password: false,
+    confirm: false,
   });
 
-  const lastNameError =
-    touched.lastName && !lastName.trim() ? 'Ce champ est obligatoire' : '';
-  const firstNameError =
-    touched.firstName && !firstName.trim() ? 'Ce champ est obligatoire' : '';
-  const vatError = touched.vat && !vat.trim() ? 'Ce champ est obligatoire' : '';
-  const isFormValid =
-    lastName.trim().length > 0 && firstName.trim().length > 0 && vat.trim().length > 0;
+  const emailValidation = getEmailError(email);
+  const passwordValidation = getPasswordError(password);
+  const confirmValidation = getConfirmError(confirmPassword, password);
 
-  const handleContinue = () => {
-    if (!isFormValid) {
-      setTouched({ lastName: true, firstName: true, vat: true });
-      return;
-    }
-    router.push('/signup/prestataire/prestataire-work');
-  };
+  const emailError = touched.email ? emailValidation : '';
+  const passwordError = touched.password ? passwordValidation : '';
+  const confirmError = touched.confirm ? confirmValidation : '';
+  const isFormValid =
+    accepted && !emailValidation && !passwordValidation && !confirmValidation;
+
+  const markTouched = (field: keyof typeof touched) =>
+    setTouched((prev) => ({ ...prev, [field]: true }));
 
   return (
     <View style={styles.screen}>
@@ -75,80 +92,106 @@ export default function PrestataireFirstInfos() {
             <View style={styles.content}>
               <Card style={styles.card}>
                 <ThemedText variant="title" color="black" style={styles.title}>
-                  Créer un compte prestataire
+                  Sécurité du compte
                 </ThemedText>
                 <ThemedText
                   variant="subtitle"
                   color="gray"
                   style={styles.subtitle}
                 >
-                  Complétez vos informations personnelles.
+                  Définissez vos identifiants de connexion.
                 </ThemedText>
 
                 <View style={styles.inputs}>
                   <TextInput
-                    placeholder="Entrez votre nom"
+                    placeholder="exemple@email.com"
                     placeholderTextColor={colors.gray}
-                    value={lastName}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    value={email}
                     onChangeText={(value) => {
-                      if (!touched.lastName) setTouched((prev) => ({ ...prev, lastName: true }));
-                      setLastName(value);
+                      if (!touched.email) markTouched('email');
+                      setEmail(value);
                     }}
-                    onBlur={() => setTouched((prev) => ({ ...prev, lastName: true }))}
+                    onBlur={() => markTouched('email')}
                     style={[
                       styles.input,
                       { backgroundColor: Colors.light.lightBlue },
-                      lastNameError ? styles.inputError : null,
+                      emailError ? styles.inputError : null,
                     ]}
                   />
-                  {lastNameError ? (
+                  {emailError ? (
                     <ThemedText color="pink" style={styles.errorText}>
-                      {lastNameError}
+                      {emailError}
                     </ThemedText>
                   ) : null}
                   <TextInput
-                    placeholder="Entrez votre prénom"
+                    placeholder="Créez un mot de passe"
                     placeholderTextColor={colors.gray}
-                    value={firstName}
+                    secureTextEntry
+                    value={password}
                     onChangeText={(value) => {
-                      if (!touched.firstName) setTouched((prev) => ({ ...prev, firstName: true }));
-                      setFirstName(value);
+                      if (!touched.password) markTouched('password');
+                      setPassword(value);
                     }}
-                    onBlur={() => setTouched((prev) => ({ ...prev, firstName: true }))}
+                    onBlur={() => markTouched('password')}
                     style={[
                       styles.input,
                       { backgroundColor: Colors.light.lightBlue },
-                      firstNameError ? styles.inputError : null,
+                      passwordError ? styles.inputError : null,
                     ]}
                   />
-                  {firstNameError ? (
+                  {passwordError ? (
                     <ThemedText color="pink" style={styles.errorText}>
-                      {firstNameError}
+                      {passwordError}
                     </ThemedText>
                   ) : null}
                   <TextInput
-                    placeholder="Entrez votre numéro de TVA"
+                    placeholder="Confirmez votre mot de passe"
                     placeholderTextColor={colors.gray}
-                    value={vat}
+                    secureTextEntry
+                    value={confirmPassword}
                     onChangeText={(value) => {
-                      if (!touched.vat) setTouched((prev) => ({ ...prev, vat: true }));
-                      setVat(value);
+                      if (!touched.confirm) markTouched('confirm');
+                      setConfirmPassword(value);
                     }}
-                    onBlur={() => setTouched((prev) => ({ ...prev, vat: true }))}
+                    onBlur={() => markTouched('confirm')}
                     style={[
                       styles.input,
                       { backgroundColor: Colors.light.lightBlue },
-                      vatError ? styles.inputError : null,
+                      confirmError ? styles.inputError : null,
                     ]}
                   />
-                  {vatError ? (
+                  {confirmError ? (
                     <ThemedText color="pink" style={styles.errorText}>
-                      {vatError}
+                      {confirmError}
                     </ThemedText>
                   ) : null}
                 </View>
 
-                <Pressable style={styles.button} onPress={handleContinue}>
+                <Pressable
+                  style={styles.checkboxRow}
+                  onPress={() => setAccepted((prev) => !prev)}
+                  hitSlop={6}
+                >
+                  <View style={[styles.checkbox, accepted && styles.checkboxChecked]}>
+                    {accepted ? (
+                      <Ionicons name="checkmark" size={14} color={Colors.light.white} />
+                    ) : null}
+                  </View>
+                  <ThemedText variant="body" color="gray" style={styles.legalText}>
+                    J'accepte les{' '}
+                    <ThemedText variant="body" style={styles.link}>
+                      conditions d'utilisation
+                    </ThemedText>{' '}
+                    et la{' '}
+                    <ThemedText variant="body" style={styles.link}>
+                      politique de confidentialité
+                    </ThemedText>
+                  </ThemedText>
+                </Pressable>
+
+                <Pressable style={styles.button} disabled={!isFormValid}>
                   <LinearGradient
                     colors={[Colors.light.pink, Colors.light.purple, Colors.light.blue]}
                     start={{ x: 0, y: 0 }}
@@ -156,7 +199,7 @@ export default function PrestataireFirstInfos() {
                     style={[styles.buttonGradient, !isFormValid && styles.buttonDisabled]}
                   >
                     <ThemedText color="white" style={styles.buttonLabel}>
-                      Suivant
+                      Continuer
                     </ThemedText>
                   </LinearGradient>
                 </Pressable>
@@ -220,6 +263,33 @@ const styles = StyleSheet.create({
   },
   errorText: {
     fontSize: 13,
+    lineHeight: 16,
+  },
+  checkboxRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: Colors.light.gray,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkboxChecked: {
+    backgroundColor: Colors.light.purple,
+    borderColor: Colors.light.purple,
+  },
+  legalText: {
+    flex: 1,
+    lineHeight: 18,
+  },
+  link: {
+    color: Colors.light.purple,
+    textDecorationLine: 'underline',
   },
   button: {
     borderRadius: 16,
@@ -231,13 +301,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderRadius: 16,
   },
+  buttonDisabled: {
+    opacity: 0.6,
+  },
   buttonLabel: {
     fontFamily: 'Poppins-Regular',
     fontSize: 17,
     fontWeight: '700',
     textAlign: 'center',
-  },
-  buttonDisabled: {
-    opacity: 0.6,
   },
 });

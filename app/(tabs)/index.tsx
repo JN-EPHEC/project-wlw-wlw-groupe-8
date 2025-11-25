@@ -20,7 +20,7 @@ export default function HomeScreen() {
         end={{ x: 0.5, y: 1 }}
         style={styles.gradient}
       />
-        <SafeAreaView style={styles.safeArea}>
+        <SafeAreaView edges={['top', 'bottom']} style={styles.safeArea}>
           <ScrollView
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
@@ -53,6 +53,7 @@ gradient: {
   },
   safeArea: {
     flex: 1,
+    backgroundColor: 'transparent',
   },
   scrollContent: {
     flexGrow: 1,

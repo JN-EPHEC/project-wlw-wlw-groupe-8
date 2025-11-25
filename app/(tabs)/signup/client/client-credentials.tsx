@@ -5,15 +5,19 @@ import { useThemeColors } from '@/hooks/UseThemeColors';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
+import { createUserWithEmailAndPassword } from 'firebase/auth';
 import React, { useState } from 'react';
-import { SafeAreaView } from 'react-native-safe-area-context';
-
 import {
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   TextInput,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { auth } from '../../../../fireBaseConfig';
 
 const getEmailError = (value: string) => {
   if (!value.trim()) return 'Ce champ est obligatoire';
@@ -41,6 +45,7 @@ export default function ClientCredentials() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [loading, setLoading] = useState(false);
   const [touched, setTouched] = useState({
     email: false,
     password: false,
@@ -63,6 +68,21 @@ export default function ClientCredentials() {
   const markTouched = (field: keyof typeof touched) =>
     setTouched((prev) => ({ ...prev, [field]: true }));
 
+  const signUp = async () => {
+    console.log("ici ?")
+    try {
+      setLoading(true);
+      const user = await createUserWithEmailAndPassword(auth, email, password);
+      console.log("la ?");
+      router.push('/signup/client/client-success');
+    }catch(e){
+      // const error = e as FirebaseError;
+      // alert("Erreur : " + error.message);
+    } finally {   
+    setLoading(false);
+    }
+  }
+
   return (
     <View style={styles.screen}>
       <LinearGradient
@@ -72,120 +92,132 @@ export default function ClientCredentials() {
         style={StyleSheet.absoluteFillObject}
       />
       <SafeAreaView style={styles.safeArea}>
-        <View style={styles.header}>
-          <Pressable onPress={() => router.back()} hitSlop={12}>
-            <Ionicons name="arrow-back" size={22} color={colors.black} />
-          </Pressable>
-        </View>
-
-        <View style={styles.content}>
-          <Card style={styles.card}>
-            <ThemedText variant="title" color="black" style={styles.title}>
-              Créer un compte client
-            </ThemedText>
-            <ThemedText
-              variant="subtitle"
-              color="gray"
-              style={styles.subtitle}
-            >
-              Maintenant, créez vos identifiants de connexion
-            </ThemedText>
-
-            <View style={styles.inputs}>
-              <TextInput
-                placeholder="exemple@email.com"
-                placeholderTextColor={colors.gray}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                value={email}
-                onChangeText={(value) => {
-                  if (!touched.email) markTouched('email');
-                  setEmail(value);
-                }}
-                onBlur={() => markTouched('email')}
-                style={[
-                  styles.input,
-                  { backgroundColor: Colors.light.lightBlue },
-                  emailError ? styles.inputError : null,
-                ]}
-              />
-              {emailError ? (
-                <ThemedText color="pink" style={styles.errorText}>
-                  {emailError}
-                </ThemedText>
-              ) : null}
-              <TextInput
-                placeholder="Créez un mot de passe"
-                placeholderTextColor={colors.gray}
-                secureTextEntry
-                value={password}
-                onChangeText={(value) => {
-                  if (!touched.password) markTouched('password');
-                  setPassword(value);
-                }}
-                onBlur={() => markTouched('password')}
-                style={[
-                  styles.input,
-                  { backgroundColor: Colors.light.lightBlue },
-                  passwordError ? styles.inputError : null,
-                ]}
-              />
-              {passwordError ? (
-                <ThemedText color="pink" style={styles.errorText}>
-                  {passwordError}
-                </ThemedText>
-              ) : null}
-              <TextInput
-                placeholder="Confirmez votre mot de passe"
-                placeholderTextColor={colors.gray}
-                secureTextEntry
-                value={confirmPassword}
-                onChangeText={(value) => {
-                  if (!touched.confirm) markTouched('confirm');
-                  setConfirmPassword(value);
-                }}
-                onBlur={() => markTouched('confirm')}
-                style={[
-                  styles.input,
-                  { backgroundColor: Colors.light.lightBlue },
-                  confirmError ? styles.inputError : null,
-                ]}
-              />
-              {confirmError ? (
-                <ThemedText color="pink" style={styles.errorText}>
-                  {confirmError}
-                </ThemedText>
-              ) : null}
+        <KeyboardAvoidingView
+          style={styles.keyboardAvoider}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 40 : 0}
+        >
+          <ScrollView
+            contentContainerStyle={styles.scrollContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.header}>
+              <Pressable onPress={() => router.back()} hitSlop={12}>
+                <Ionicons name="arrow-back" size={22} color={colors.black} />
+              </Pressable>
             </View>
 
-            <Pressable
-              style={styles.checkboxRow}
-              onPress={() => setAccepted((prev) => !prev)}
-              hitSlop={6}
-            >
-              <View style={[styles.checkbox, accepted && styles.checkboxChecked]}>
-                {accepted ? <Ionicons name="checkmark" size={14} color={Colors.light.white} /> : null}
-              </View>
-              <ThemedText variant="body" color="gray" style={styles.legalText}>
-                J'accepte les <ThemedText variant="body" style={styles.link}>conditions d'utilisation</ThemedText> et la{' '}
-                <ThemedText variant="body" style={styles.link}>politique de confidentialité</ThemedText>
-              </ThemedText>
-            </Pressable>
-
-            <Pressable style={styles.button} disabled={!isFormValid}>
-              <LinearGradient
-                colors={[Colors.light.pink, Colors.light.purple, Colors.light.blue]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={[styles.buttonGradient, !isFormValid && styles.buttonDisabled]}
-              >
-                <ThemedText color="white" style={styles.buttonLabel}>
-                  Créer mon compte
+            <View style={styles.content}>
+              <Card style={styles.card}>
+                <ThemedText variant="title" color="black" style={styles.title}>
+                  Créer un compte client
                 </ThemedText>
-              </LinearGradient>
-            </Pressable>
-          </Card>
-        </View>
+                <ThemedText
+                  variant="subtitle"
+                  color="gray"
+                  style={styles.subtitle}
+                >
+                  Maintenant, créez vos identifiants de connexion
+                </ThemedText>
+
+                <View style={styles.inputs}>
+                  <TextInput
+                    placeholder="exemple@email.com"
+                    placeholderTextColor={colors.gray}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    value={email}
+                    onChangeText={(value) => {
+                      if (!touched.email) markTouched('email');
+                      setEmail(value);
+                    }}
+                    onBlur={() => markTouched('email')}
+                    style={[
+                      styles.input,
+                      { backgroundColor: Colors.light.lightBlue },
+                      emailError ? styles.inputError : null,
+                    ]}
+                  />
+                  {emailError ? (
+                    <ThemedText color="pink" style={styles.errorText}>
+                      {emailError}
+                    </ThemedText>
+                  ) : null}
+                  <TextInput
+                    placeholder="Créez un mot de passe"
+                    placeholderTextColor={colors.gray}
+                    secureTextEntry
+                    value={password}
+                    onChangeText={(value) => {
+                      if (!touched.password) markTouched('password');
+                      setPassword(value);
+                    }}
+                    onBlur={() => markTouched('password')}
+                    style={[
+                      styles.input,
+                      { backgroundColor: Colors.light.lightBlue },
+                      passwordError ? styles.inputError : null,
+                    ]}
+                  />
+                  {passwordError ? (
+                    <ThemedText color="pink" style={styles.errorText}>
+                      {passwordError}
+                    </ThemedText>
+                  ) : null}
+                  <TextInput
+                    placeholder="Confirmez votre mot de passe"
+                    placeholderTextColor={colors.gray}
+                    secureTextEntry
+                    value={confirmPassword}
+                    onChangeText={(value) => {
+                      if (!touched.confirm) markTouched('confirm');
+                      setConfirmPassword(value);
+                    }}
+                    onBlur={() => markTouched('confirm')}
+                    style={[
+                      styles.input,
+                      { backgroundColor: Colors.light.lightBlue },
+                      confirmError ? styles.inputError : null,
+                    ]}
+                  />
+                  {confirmError ? (
+                    <ThemedText color="pink" style={styles.errorText}>
+                      {confirmError}
+                    </ThemedText>
+                  ) : null}
+                </View>
+
+                <Pressable
+                  style={styles.checkboxRow}
+                  onPress={() => setAccepted((prev) => !prev)}
+                  hitSlop={6}
+                >
+                  <View style={[styles.checkbox, accepted && styles.checkboxChecked]}>
+                    {accepted ? <Ionicons name="checkmark" size={14} color={Colors.light.white} /> : null}
+                  </View>
+                  <ThemedText variant="body" color="gray" style={styles.legalText}>
+                    J'accepte les <ThemedText variant="body" style={styles.link}>conditions d'utilisation</ThemedText> et la{' '}
+                    <ThemedText variant="body" style={styles.link}>politique de confidentialité</ThemedText>
+                  </ThemedText>
+                </Pressable>
+
+                <Pressable style={styles.button} disabled={!isFormValid} onPress={() => signUp()}>
+                  <LinearGradient
+                    colors={[Colors.light.pink, Colors.light.purple, Colors.light.blue]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={[styles.buttonGradient, !isFormValid && styles.buttonDisabled]}
+                  >
+                    <ThemedText color="white" style={styles.buttonLabel}>
+                      Créer mon compte
+                    </ThemedText>
+                  </LinearGradient>
+                </Pressable>
+              </Card>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
       </SafeAreaView>
     </View>
   );
@@ -197,6 +229,12 @@ const styles = StyleSheet.create({
   },
   safeArea: {
     flex: 1,
+  },
+  keyboardAvoider: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
   },
   header: {
     paddingHorizontal: 20,
