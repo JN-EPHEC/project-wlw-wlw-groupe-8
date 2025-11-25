@@ -24,7 +24,7 @@ type FavoritesProviderProps = {
 
 export const FavoritesProvider = ({ children }: FavoritesProviderProps) => {
   const [favoritesMap, setFavoritesMap] = useState<Record<string, Provider>>({});
-
+  
   const toggleFavorite = useCallback((provider: Provider) => {
     setFavoritesMap((prev) => {
       if (prev[provider.id]) {
@@ -69,8 +69,15 @@ export const useFavorites = () => {
   const context = useContext(FavoritesContext);
 
   if (!context) {
-    throw new Error('useFavorites must be used within a FavoritesProvider');
+    return {
+      favorites: [],
+      toggleFavorite: () => {},
+      removeFavorite: () => {},
+      isFavorite: () => false,
+    };
   }
 
   return context;
 };
+
+

@@ -1,8 +1,11 @@
-import React from "react";
-import { Tabs } from "expo-router";
+import { useThemeColors } from '@/hooks/UseThemeColors';
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { Tabs } from "expo-router";
+import React from "react";
+
 
 export default function TabsLayout() {
+  const colors = useThemeColors();
   return (
     <Tabs
       screenOptions={{
@@ -14,7 +17,7 @@ export default function TabsLayout() {
       }}
     >
       <Tabs.Screen
-        name="index"
+        name="home"
         options={{
           title: "Home",
           tabBarIcon: ({ color, size }) => <Ionicons name="home" color={color} size={size} />,

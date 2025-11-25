@@ -1,6 +1,8 @@
-import React from "react";
-import { SafeAreaView, ScrollView, Text, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
+import React from "react";
+import { ScrollView, Text, View } from "react-native";
+import { SafeAreaView } from 'react-native-safe-area-context';
+
 
 const collections = [
   {

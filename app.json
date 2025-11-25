@@ -10,7 +10,8 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.ProjectBA"
+      "bundleIdentifier": "com.speedevents.firebase",
+      "googleServicesFile": "./GoogleService-info.plist"
     },
     "android": {
       "adaptiveIcon": {
@@ -21,14 +22,14 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.anonymous.ProjectBA"
+      "package": "com.speedevents.firebase",
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "output": "static",
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
-      "expo-image-picker",
       "expo-router",
       [
         "expo-splash-screen",
@@ -39,6 +40,14 @@
           "backgroundColor": "#ffffff",
           "dark": {
             "backgroundColor": "#000000"
+          }
+        }
+      ],
+      ["expo-build-properties", 
+        {
+          "ios": {
+            "useFrameworks": "static",
+            "buildReactNativeFromSource": true
           }
         }
       ]
