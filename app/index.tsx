@@ -31,7 +31,7 @@ export default function HomePage() {
               <ThemedText variant="subtitle" color="gray" style={styles.account}>
                 Vous avez déjà un compte ?
               </ThemedText>
-              <Link href="/signup/login" asChild>
+              <Link href="/auth/login" asChild>
                 <Pressable hitSlop={8}>
                   <ThemedText variant="subtitle" style={styles.loginLink}>
                     Se connecter

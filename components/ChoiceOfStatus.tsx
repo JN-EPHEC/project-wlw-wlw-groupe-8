@@ -18,7 +18,7 @@ export function ChoiceOfStatus() {
       </View>
 
       <View style={styles.cardsContainer}>
-        <Link href="/signup/client/client-firstInfos" asChild>
+        <Link href="/auth/client/client-firstInfos" asChild>
           <Pressable>
             <Card style={{padding: 38, alignItems: 'center', gap: 5}}>
               <LinearGradient
@@ -35,7 +35,7 @@ export function ChoiceOfStatus() {
           </Pressable>
         </Link>
 
-        <Link href="/signup/prestataire/prestataire-firstInfos" asChild>
+        <Link href="/auth/prestataire/prestataire-firstInfos" asChild>
           <Pressable>
             <Card style={{padding: 38, alignItems: 'center', gap: 5}}>
               <LinearGradient

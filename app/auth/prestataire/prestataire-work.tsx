@@ -10,13 +10,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 
 import {
-    KeyboardAvoidingView,
-    Platform,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    TextInput,
-    View,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+  View,
 } from 'react-native';
 
 export default function PrestataireWork() {
@@ -46,7 +46,7 @@ export default function PrestataireWork() {
       setShowErrors(true);
       return;
     }
-    router.push('/signup/prestataire/prestataire-credentials');
+    router.push('/auth/prestataire/prestataire-credentials');
   };
 
   return (

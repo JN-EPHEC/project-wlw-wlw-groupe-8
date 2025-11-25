@@ -18,25 +18,32 @@ import {
   View,
 } from 'react-native';
 
-export default function ClientSignup() {
+export default function PrestataireFirstInfos() {
   const colors = useThemeColors();
   const router = useRouter();
   const [lastName, setLastName] = useState('');
   const [firstName, setFirstName] = useState('');
-  const [touched, setTouched] = useState({ lastName: false, firstName: false });
+  const [vat, setVat] = useState('');
+  const [touched, setTouched] = useState({
+    lastName: false,
+    firstName: false,
+    vat: false,
+  });
 
   const lastNameError =
     touched.lastName && !lastName.trim() ? 'Ce champ est obligatoire' : '';
   const firstNameError =
     touched.firstName && !firstName.trim() ? 'Ce champ est obligatoire' : '';
-  const isFormValid = lastName.trim().length > 0 && firstName.trim().length > 0;
+  const vatError = touched.vat && !vat.trim() ? 'Ce champ est obligatoire' : '';
+  const isFormValid =
+    lastName.trim().length > 0 && firstName.trim().length > 0 && vat.trim().length > 0;
 
   const handleContinue = () => {
     if (!isFormValid) {
-      setTouched({ lastName: true, firstName: true });
+      setTouched({ lastName: true, firstName: true, vat: true });
       return;
     }
-    router.push('/signup/client/client-credentials');
+    router.push('/auth/prestataire/prestataire-work');
   };
 
   return (
@@ -68,14 +75,14 @@ export default function ClientSignup() {
             <View style={styles.content}>
               <Card style={styles.card}>
                 <ThemedText variant="title" color="black" style={styles.title}>
-                  Créer un compte client
+                  Créer un compte prestataire
                 </ThemedText>
                 <ThemedText
                   variant="subtitle"
                   color="gray"
                   style={styles.subtitle}
                 >
-                  Commençons par vos informations personnelles
+                  Complétez vos informations personnelles.
                 </ThemedText>
 
                 <View style={styles.inputs}>
@@ -119,6 +126,26 @@ export default function ClientSignup() {
                       {firstNameError}
                     </ThemedText>
                   ) : null}
+                  <TextInput
+                    placeholder="Entrez votre numéro de TVA"
+                    placeholderTextColor={colors.gray}
+                    value={vat}
+                    onChangeText={(value) => {
+                      if (!touched.vat) setTouched((prev) => ({ ...prev, vat: true }));
+                      setVat(value);
+                    }}
+                    onBlur={() => setTouched((prev) => ({ ...prev, vat: true }))}
+                    style={[
+                      styles.input,
+                      { backgroundColor: Colors.light.lightBlue },
+                      vatError ? styles.inputError : null,
+                    ]}
+                  />
+                  {vatError ? (
+                    <ThemedText color="pink" style={styles.errorText}>
+                      {vatError}
+                    </ThemedText>
+                  ) : null}
                 </View>
 
                 <Pressable style={styles.button} onPress={handleContinue}>
@@ -129,7 +156,7 @@ export default function ClientSignup() {
                     style={[styles.buttonGradient, !isFormValid && styles.buttonDisabled]}
                   >
                     <ThemedText color="white" style={styles.buttonLabel}>
-                      Continuer
+                      Suivant
                     </ThemedText>
                   </LinearGradient>
                 </Pressable>
@@ -194,9 +221,6 @@ const styles = StyleSheet.create({
   errorText: {
     fontSize: 13,
   },
-  buttonDisabled: {
-    opacity: 0.6,
-  },
   button: {
     borderRadius: 16,
     overflow: 'hidden',
@@ -212,5 +236,8 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '700',
     textAlign: 'center',
+  },
+  buttonDisabled: {
+    opacity: 0.6,
   },
 });
