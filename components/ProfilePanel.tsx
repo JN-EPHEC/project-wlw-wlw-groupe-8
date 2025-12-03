@@ -1,5 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter } from 'expo-router';
+import { getAuth } from 'firebase/auth';
 import React from 'react';
 import {
   Image,
@@ -10,6 +12,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { auth } from '../fireBaseConfig';
 
 const stats = [
   { label: 'Événements créés', value: 12 },
@@ -32,9 +35,12 @@ const ProfilePanel = ({ onClose }: ProfilePanelProps) => {
     console.log('Navigate:', route);
   };
 
-  const onLogout = () => {
-    console.log('Logout');
-  };
+  const router = useRouter();
+  getAuth().onAuthStateChanged((user) => {
+    if(!user) {
+      router.replace("..");
+    }
+  });
 
   return (
     <LinearGradient
@@ -129,7 +135,7 @@ const ProfilePanel = ({ onClose }: ProfilePanelProps) => {
 
           <View style={styles.footer}>
             <Pressable
-              onPress={onLogout}
+              onPress={() => auth.signOut()}
               accessibilityRole="button"
               accessibilityLabel="Se déconnecter"
               style={({ pressed }) => [styles.logoutBtn, pressed && { transform: [{ scale: 0.98 }] }]}

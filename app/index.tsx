@@ -1,18 +1,23 @@
-
 import { ChoiceOfStatus } from '@/components/ChoiceOfStatus';
 import { ThemedText } from '@/components/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useThemeColors } from '@/hooks/UseThemeColors';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Link } from 'expo-router';
+import { Link, useRouter } from 'expo-router';
+import { getAuth } from 'firebase/auth';
 import React from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-
-
 export default function HomePage() {
   const colors = useThemeColors();
+    const router = useRouter();
+  
+  getAuth().onAuthStateChanged((user) => {
+    if(user) {
+      router.replace("/../(tabs)");
+    }
+  });
   return (
     <View style={styles.screen}>
       <LinearGradient

@@ -1,6 +1,6 @@
 import React from 'react';
 
-import HomeScreen from '../HomeScreen';
+import HomeScreen from '../../components/HomeScreen';
 
 const HomeTab = () => {
   return <HomeScreen />;

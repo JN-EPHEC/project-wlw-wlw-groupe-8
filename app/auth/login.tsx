@@ -29,7 +29,7 @@ export default function SignInScreen() {
   const handleSignIn = async () => {
     try {
       const user = await signInWithEmailAndPassword(auth, email, password);
-      router.push('/../../HomeScreen');
+      router.push('/../(tabs)');
     } catch(error) {
       console.error('Erreur lors de la connexion : ', error);
     }

@@ -1,5 +1,10 @@
+import { initializeAuth } from '@firebase/auth';
+//@ts-ignore
+import { getReactNativePersistence } from '@firebase/auth/dist/rn/index.js';
+import ReactNativeAsyncStorage from '@react-native-async-storage/async-storage';
 import { initializeApp } from "firebase/app";
-import { initializeAuth } from 'firebase/auth';
+
+
   const firebaseConfig = {
     apiKey: "AIzaSyCQmXxgDMxNFUJvoAEl-Ujii9L66r6Cw0I",
     authDomain: "speedevents-25.firebaseapp.com",
@@ -9,4 +14,6 @@ import { initializeAuth } from 'firebase/auth';
     appId: "1:580266511189:web:cbcca49d52f21c4977bddc"
   };
   export const app = initializeApp(firebaseConfig);
-  export const auth = initializeAuth(app);
+export const auth = initializeAuth(app, {
+  persistence: getReactNativePersistence(ReactNativeAsyncStorage)
+});
