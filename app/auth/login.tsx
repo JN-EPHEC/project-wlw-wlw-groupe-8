@@ -5,7 +5,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { signInWithEmailAndPassword } from 'firebase/auth';
+import { collection, getDocs, query, where } from 'firebase/firestore';
 import React, { useMemo, useState } from 'react';
+
 import {
   KeyboardAvoidingView,
   Platform,
@@ -16,20 +18,31 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { auth } from '../../fireBaseConfig';
+import { auth, db } from '../../fireBaseConfig';
 
 export default function SignInScreen() {
   const colors = useThemeColors();
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const contactsCollection = collection(db, 'contacts');
+
 
   const canSubmit = useMemo(() => email.trim() !== '' && password.trim() !== '', [email, password]);
 
   const handleSignIn = async () => {
     try {
       const user = await signInWithEmailAndPassword(auth, email, password);
-      router.push('/../(tabs)');
+      const q = query(contactsCollection, where("userId", "==", user.user.uid));
+      const data = await getDocs(q);
+      const userType = data.docs[0]?.data().type;
+      if(userType === 'prestataire') {
+        router.replace('/(tabs)/prestataire');
+        return;
+      } else if(userType === 'client') {
+        router.replace('/(tabs)/client');
+        return;
+      }
     } catch(error) {
       console.error('Erreur lors de la connexion : ', error);
     }

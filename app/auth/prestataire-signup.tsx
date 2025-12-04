@@ -8,6 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
+import { addDoc, collection } from 'firebase/firestore';
 import React, { useState } from 'react';
 import {
   KeyboardAvoidingView,
@@ -18,7 +19,9 @@ import {
   View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { auth } from '../../fireBaseConfig';
+import { auth, db } from '../../fireBaseConfig';
+
+
 
 export default function PrestataireFirstInfos() {
   const colors = useThemeColors();
@@ -32,6 +35,8 @@ export default function PrestataireFirstInfos() {
   const [price, setPrice] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const contactsCollection = collection(db, 'contacts');
+  
 
   const handleGoBack = () => {
     if (step > 0) {
@@ -42,10 +47,21 @@ export default function PrestataireFirstInfos() {
   }
 
     const signUp = async () => {
-      console.log("ici ??");
       try {
         const user = await createUserWithEmailAndPassword(auth, email, password);
-        if(user) router.replace("/(tabs)");
+        if(user){
+        await addDoc(contactsCollection, { 
+          lastname: lastName, 
+          firstname: firstName,
+          vat: vat, 
+          job: job,
+          cities: cities,
+          price: price, 
+          type: "prestataire",
+          userId: user.user.uid 
+        });
+        router.replace("/(tabs)/prestataire");
+        } 
       }catch(e){
         alert("Erreur : " + e);
       }

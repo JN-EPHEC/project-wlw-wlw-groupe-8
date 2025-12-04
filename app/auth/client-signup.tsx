@@ -6,6 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
+import { addDoc, collection } from 'firebase/firestore';
 import React, { useState } from 'react';
 import {
   KeyboardAvoidingView,
@@ -16,7 +17,7 @@ import {
   View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { auth } from '../../fireBaseConfig';
+import { auth, db } from '../../fireBaseConfig';
 
 export default function ClientSignup() {
   const colors = useThemeColors();
@@ -29,6 +30,7 @@ export default function ClientSignup() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [accepted, setAccepted] = useState(false);
   const [loading, setLoading] = useState(false);
+  const contactsCollection = collection(db, 'contacts');
 
   const handleGoBack = () => {
     if(step > 0) {
@@ -39,11 +41,13 @@ export default function ClientSignup() {
   }
   
   const signUp = async () => {
-    console.log("ici ??");
     try {
       setLoading(true);
       const user = await createUserWithEmailAndPassword(auth, email, password);
-      if(user) router.replace("/(tabs)");
+      if(user) {
+        await addDoc(contactsCollection, { lastname: lastName, firstname: firstName, type: "client", userId: user.user.uid });
+        router.replace("/(tabs)/client");
+      }
     }catch(e){
       alert("Erreur : " + e);
     } finally {   

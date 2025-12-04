@@ -1,11 +1,15 @@
+import ProfilePanel from '@/components/ProfilePanel';
+import ProviderChatModal from '@/components/ProviderChatModal';
+import ProviderProfileModal from '@/components/ProviderProfileModal';
+import { Provider, providers } from '@/constants/providers';
+import { useFavorites } from '@/context/FavoritesContext';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import React, { useCallback, useMemo, useState } from 'react';
 import {
-  Modal,
   FlatList,
   Image,
-  SafeAreaView,
+  Modal,
   ScrollView,
   StyleSheet,
   Text,
@@ -13,12 +17,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-
-import { useFavorites } from '@/context/FavoritesContext';
-import ProfilePanel from '@/components/ProfilePanel';
-import ProviderProfileModal from '@/components/ProviderProfileModal';
-import ProviderChatModal from '@/components/ProviderChatModal';
-import { Provider, providers } from '@/constants/providers';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 const suggestionChips = ['Mariage élégant', 'Anniversaire surprise', "Soirée d'entreprise"];
 const jobOptions = ['Photographe', 'DJ', 'Traiteur', 'Fleuriste', 'Décorateur', 'Animateur'];
@@ -268,7 +267,7 @@ const HomeHeader = ({
   );
 };
 
-const HomeScreen = () => {
+const ClientScreen = () => {
   const { toggleFavorite, isFavorite } = useFavorites();
   const lastMinuteProvider = providers[0];
   const [locationModalVisible, setLocationModalVisible] = useState(false);
@@ -679,7 +678,7 @@ const HomeScreen = () => {
   );
 };
 
-export default HomeScreen;
+export default ClientScreen;
 
 const styles = StyleSheet.create({
   screen: {
