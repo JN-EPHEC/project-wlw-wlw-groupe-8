@@ -50,7 +50,7 @@ export default function PrestataireWork(props: any) {
       color="gray"
       style={styles.subtitle}
     >
-      Parlez-nous de votre métier et de votre zone d'activité.
+      Parlez-nous de votre métier et de votre zone d&apos;activité.
     </ThemedText>
     <View style={styles.formSection}>
       <ThemedText variant="body" color="black" style={styles.label}>

@@ -93,7 +93,7 @@ export default function PrestataireFirstInfos() {
             </View>
 
             <View style={styles.content}>
-              {step == 0 &&
+              {step === 0 &&
                 <PrestataireFirstInfo
                   lastName={lastName}
                   setLastName={setLastName}
@@ -105,7 +105,7 @@ export default function PrestataireFirstInfos() {
                   setStep={setStep}
                 />
               }
-              {step == 1 &&
+              {step === 1 &&
                 <PrestataireWork
                   job={job}
                   setJob={setJob}
@@ -117,7 +117,7 @@ export default function PrestataireFirstInfos() {
                   setStep={setStep}
                 />
               }
-              {step == 2 &&
+              {step === 2 &&
                 <PrestataireCredentials
                   email={email}
                   setEmail={setEmail}
@@ -127,7 +127,7 @@ export default function PrestataireFirstInfos() {
                   setStep={setStep}
                 />
               }
-              {step == 3 &&
+              {step === 3 &&
                 <PrestataireSubscription
                   signUp={signUp}
                 />

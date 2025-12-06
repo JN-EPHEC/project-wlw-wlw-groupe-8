@@ -154,9 +154,9 @@ export default function PrestataireCredentials(props: any) {
           ) : null}
         </View>
         <ThemedText variant="body" color="gray" style={styles.legalText}>
-          J'accepte les{' '}
+          J&apos;accepte les{' '}
           <ThemedText variant="body" style={styles.link}>
-            conditions d'utilisation
+            conditions d&apos;utilisation
           </ThemedText>{' '}
           et la{' '}
           <ThemedText variant="body" style={styles.link}>

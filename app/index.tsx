@@ -3,14 +3,13 @@ import { ThemedText } from '@/components/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useThemeColors } from '@/hooks/UseThemeColors';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Link, useRouter } from 'expo-router';
+import { Link } from 'expo-router';
 import React from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function HomePage() {
   const colors = useThemeColors();
-    const router = useRouter();
   
   // getAuth().onAuthStateChanged((user) => {
   //   if(user) {

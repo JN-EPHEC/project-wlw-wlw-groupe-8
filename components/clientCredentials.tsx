@@ -142,7 +142,7 @@ export default function ClientCredentials(props: any) {
           {accepted ? <Ionicons name="checkmark" size={14} color={Colors.light.white} /> : null}
         </View>
         <ThemedText variant="body" color="gray" style={styles.legalText}>
-          J'accepte les <ThemedText variant="body" style={styles.link}>conditions d'utilisation</ThemedText> et la{' '}
+          J&apos;accepte les <ThemedText variant="body" style={styles.link}>conditions d&apos;utilisation</ThemedText> et la{' '}
           <ThemedText variant="body" style={styles.link}>politique de confidentialité</ThemedText>
         </ThemedText>
       </Pressable>

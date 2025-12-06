@@ -1,16 +1,24 @@
 import ProfilePanel from '@/components/ProfilePanel';
 import ProviderChatModal from '@/components/ProviderChatModal';
 import ProviderProfileModal from '@/components/ProviderProfileModal';
-import { Provider, providers } from '@/constants/providers';
+import { Provider } from '@/constants/providers';
 import { useFavorites } from '@/context/FavoritesContext';
+import { db } from '@/fireBaseConfig';
+import {
+  getInitials,
+  mapContactToProvider,
+  PLACEHOLDER_AVATAR_URI,
+} from '@/utils/providerMapper';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import React, { useCallback, useMemo, useState } from 'react';
+import { collection, getDocs, query, where } from 'firebase/firestore';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   FlatList,
   Image,
+  ImageStyle,
   Modal,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -19,7 +27,6 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-const suggestionChips = ['Mariage élégant', 'Anniversaire surprise', "Soirée d'entreprise"];
 const jobOptions = ['Photographe', 'DJ', 'Traiteur', 'Fleuriste', 'Décorateur', 'Animateur'];
 const priceOptions = ['0€ - 250€', '250€ - 500€', '500€ - 1000€', '1000€ +'];
 const monthNames = [
@@ -40,6 +47,23 @@ const weekdays = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
 const belgiumMapUri =
   'https://upload.wikimedia.org/wikipedia/commons/thumb/f/f8/Belgium_location_map.svg/1024px-Belgium_location_map.svg.png';
 
+type ProviderAvatarProps = {
+  name: string;
+  image?: string;
+  style: ImageStyle;
+};
+
+const ProviderAvatar = ({ name, image, style }: ProviderAvatarProps) => {
+  if (image && image !== PLACEHOLDER_AVATAR_URI) {
+    return <Image source={{ uri: image }} style={style} />;
+  }
+  return (
+    <View style={[style, styles.avatarPlaceholder]}>
+      <Text style={styles.avatarPlaceholderText}>{getInitials(name)}</Text>
+    </View>
+  );
+};
+
 type ProviderCardProps = {
   provider: Provider;
   onToggleFavorite: () => void;
@@ -49,13 +73,14 @@ type ProviderCardProps = {
 
 const ProviderCard = ({ provider, onToggleFavorite, isFavorite, onViewProfile }: ProviderCardProps) => (
   <View style={styles.card}>
-    <Image source={{ uri: provider.image }} style={styles.cardImage} />
+    <ProviderAvatar name={provider.name} image={provider.image} style={styles.cardImage} />
 
     <View style={styles.cardBody}>
       <View style={styles.textGroup}>
         <Text style={styles.cardName}>{provider.name}</Text>
         <Text style={styles.cardCategory}>{provider.category}</Text>
-        <Text style={styles.cardCity}>• {provider.city}</Text>
+        <Text style={styles.cardCitiesLabel}>Disponible à :</Text>
+        <Text style={styles.cardCityList}>{provider.city}</Text>
       </View>
 
       <View style={styles.cardFooter}>
@@ -88,30 +113,20 @@ const ProviderCard = ({ provider, onToggleFavorite, isFavorite, onViewProfile }:
 );
 
 type HomeHeaderProps = {
-  lastMinuteProvider?: Provider;
-  onToggleFavorite: (provider: Provider) => void;
-  isFavorite: (id: string) => boolean;
   onAvailabilityPress: () => void;
   onLocationPress: () => void;
   onJobPress: () => void;
   onPricePress: () => void;
   onProfilePress: () => void;
-  onOpenProfile: (provider: Provider) => void;
 };
 
 const HomeHeader = ({
-  lastMinuteProvider,
-  onToggleFavorite,
-  isFavorite,
   onAvailabilityPress,
   onLocationPress,
   onJobPress,
   onPricePress,
   onProfilePress,
-  onOpenProfile,
 }: HomeHeaderProps) => {
-  const lastMinuteFavorite = lastMinuteProvider ? isFavorite(lastMinuteProvider.id) : false;
-
   const leftFilters = [
     { key: 'availability', label: 'Disponibilité', icon: 'calendar-outline' as const, onPress: onAvailabilityPress },
     { key: 'category', label: 'Métier', icon: 'briefcase-outline' as const, onPress: onJobPress },
@@ -192,76 +207,6 @@ const HomeHeader = ({
         </View>
       </View>
 
-      <View style={styles.sectionBlock}>
-        <View style={styles.sectionHeader}>
-          <Ionicons name="sparkles-outline" size={16} color="#7D5BFF" />
-          <Text style={styles.sectionHeaderText}>Suggestions IA</Text>
-        </View>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-          {suggestionChips.map((chip, index) => (
-            <LinearGradient
-              key={`${chip}-${index}`}
-              colors={['#5ED8FF', '#7F74FF']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.suggestionChip}
-            >
-              <Text style={styles.suggestionChipText}>{chip}</Text>
-            </LinearGradient>
-          ))}
-        </ScrollView>
-      </View>
-
-      {lastMinuteProvider && (
-        <View style={styles.sectionBlock}>
-          <View style={styles.lastMinuteHeader}>
-            <View style={styles.sectionHeader}>
-              <Ionicons name="flash" size={16} color="#F5A500" />
-              <Text style={styles.sectionHeaderText}>Last Minute</Text>
-            </View>
-            <Text style={styles.lastMinuteSubtitle}>Disponibles sous 14 jours</Text>
-          </View>
-          <View style={styles.lastMinuteCard}>
-            <Image source={{ uri: lastMinuteProvider.image }} style={styles.lastMinuteImage} />
-            <View style={styles.lastMinuteBody}>
-              <Text style={styles.lastMinuteName}>{lastMinuteProvider.name}</Text>
-              <Text style={styles.lastMinuteMeta}>
-                {lastMinuteProvider.category} • {lastMinuteProvider.city}
-              </Text>
-              <View style={styles.lastMinuteFooter}>
-                <View style={styles.ratingContainer}>
-                  <Ionicons name="star" size={14} color="#FFC107" />
-                  <Text style={styles.ratingText}>{lastMinuteProvider.rating}</Text>
-                </View>
-                <Text style={styles.lastMinutePrice}>{lastMinuteProvider.price}</Text>
-              </View>
-            </View>
-            <View style={styles.lastMinuteActions}>
-              <TouchableOpacity
-                style={styles.lastMinuteHeart}
-                onPress={() => onToggleFavorite(lastMinuteProvider)}
-              >
-                <Ionicons
-                  name={lastMinuteFavorite ? 'heart' : 'heart-outline'}
-                  size={20}
-                  color={lastMinuteFavorite ? '#FF5C8D' : '#C0C0C8'}
-                />
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => onOpenProfile(lastMinuteProvider)}>
-                <LinearGradient
-                  colors={['#4B6BFF', '#A24BFF']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={styles.lastMinuteButton}
-                >
-                  <Text style={styles.lastMinuteButtonText}>Voir profil</Text>
-                </LinearGradient>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      )}
-
       <Text style={styles.sectionTitle}>Prestataires</Text>
     </View>
   );
@@ -269,7 +214,8 @@ const HomeHeader = ({
 
 const ClientScreen = () => {
   const { toggleFavorite, isFavorite } = useFavorites();
-  const lastMinuteProvider = providers[0];
+  const [prestataires, setPrestataires] = useState<Provider[]>([]);
+  const [loadingProviders, setLoadingProviders] = useState(true);
   const [locationModalVisible, setLocationModalVisible] = useState(false);
   const [priceModalVisible, setPriceModalVisible] = useState(false);
   const [availabilityModalVisible, setAvailabilityModalVisible] = useState(false);
@@ -294,6 +240,34 @@ const ClientScreen = () => {
   const today = useMemo(() => new Date(), []);
   const [calendarMonth, setCalendarMonth] = useState(today.getMonth());
   const [calendarYear, setCalendarYear] = useState(today.getFullYear());
+
+  useEffect(() => {
+    let isMounted = true;
+    const fetchPrestataires = async () => {
+      try {
+        const contactsRef = collection(db, 'contacts');
+        const prestatairesQuery = query(contactsRef, where('type', '==', 'prestataire'));
+        const snapshot = await getDocs(prestatairesQuery);
+        if (!isMounted) {
+          return;
+        }
+        const parsed = snapshot.docs.map((doc) => mapContactToProvider(doc.id, doc.data()));
+        setPrestataires(parsed);
+      } catch (error) {
+        console.error('Erreur lors du chargement des prestataires :', error);
+      } finally {
+        if (isMounted) {
+          setLoadingProviders(false);
+        }
+      }
+    };
+
+    fetchPrestataires();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const calendarCells = useMemo(() => {
     const daysInMonth = new Date(calendarYear, calendarMonth + 1, 0).getDate();
@@ -452,37 +426,41 @@ const ClientScreen = () => {
   const renderHeader = useCallback(() => {
     return (
       <HomeHeader
-        lastMinuteProvider={lastMinuteProvider}
-        onToggleFavorite={toggleFavorite}
-        isFavorite={isFavorite}
         onAvailabilityPress={handleAvailabilityPress}
         onLocationPress={handleLocationPress}
         onJobPress={handleJobPress}
         onPricePress={handlePricePress}
         onProfilePress={() => setProfileModalVisible(true)}
-        onOpenProfile={handleOpenProviderProfile}
       />
     );
   }, [
-    lastMinuteProvider,
-    toggleFavorite,
-    isFavorite,
     handleAvailabilityPress,
     handleLocationPress,
     handleJobPress,
     handlePricePress,
-    handleOpenProviderProfile,
   ]);
 
   return (
     <SafeAreaView style={styles.screen}>
       <FlatList
-        data={providers}
+        data={prestataires}
         keyExtractor={(item) => item.id}
         renderItem={renderProvider}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
         ListHeaderComponent={renderHeader}
+        ListEmptyComponent={
+          <View style={styles.emptyState}>
+            {loadingProviders ? (
+              <>
+                <ActivityIndicator color="#A24BFF" />
+                <Text style={styles.emptyStateText}>Chargement des prestataires...</Text>
+              </>
+            ) : (
+              <Text style={styles.emptyStateText}>Aucun prestataire disponible pour le moment.</Text>
+            )}
+          </View>
+        }
       />
 
       <Modal visible={locationModalVisible} transparent animationType="fade" onRequestClose={closeAllModals}>
@@ -810,98 +788,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#6D6E7F',
   },
-  sectionBlock: {
-    marginTop: 16,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginBottom: 12,
-  },
-  sectionHeaderText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#2F2F42',
-  },
-  suggestionChip: {
-    paddingVertical: 10,
-    paddingHorizontal: 18,
-    borderRadius: 999,
-    marginRight: 12,
-  },
-  suggestionChipText: {
-    color: '#FFFFFF',
-    fontWeight: '600',
-  },
-  lastMinuteHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  lastMinuteSubtitle: {
-    fontSize: 13,
-    color: '#8A8B99',
-  },
-  lastMinuteCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFF9E8',
-    borderRadius: 20,
-    padding: 12,
-    marginTop: 12,
-    gap: 12,
-  },
-  lastMinuteImage: {
-    width: 72,
-    height: 72,
-    borderRadius: 16,
-  },
-  lastMinuteBody: {
-    flex: 1,
-  },
-  lastMinuteName: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#1F1F33',
-  },
-  lastMinuteMeta: {
-    marginTop: 2,
-    fontSize: 12,
-    color: '#6D6E7F',
-  },
-  lastMinuteFooter: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  lastMinutePrice: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#C97E00',
-  },
-  lastMinuteActions: {
-    alignItems: 'center',
-    gap: 8,
-  },
-  lastMinuteHeart: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  lastMinuteButton: {
-    borderRadius: 18,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-  },
-  lastMinuteButtonText: {
-    color: '#FFFFFF',
-    fontWeight: '600',
-    fontSize: 13,
-  },
   sectionTitle: {
     fontSize: 20,
     fontWeight: '700',
@@ -926,6 +812,17 @@ const styles = StyleSheet.create({
     height: 96,
     borderRadius: 14,
     marginRight: 12,
+    overflow: 'hidden',
+  },
+  avatarPlaceholder: {
+    backgroundColor: '#E7E3FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarPlaceholderText: {
+    color: '#6D5BFF',
+    fontWeight: '700',
+    fontSize: 20,
   },
   cardBody: {
     flex: 1,
@@ -943,10 +840,16 @@ const styles = StyleSheet.create({
     color: '#7A7A7A',
     marginTop: 2,
   },
-  cardCity: {
+  cardCitiesLabel: {
+    fontSize: 12,
+    color: '#7A7A7A',
+    marginTop: 6,
+    fontWeight: '600',
+  },
+  cardCityList: {
     fontSize: 12,
     color: '#A1A1A1',
-    marginTop: 6,
+    marginTop: 2,
   },
   actionColumn: {
     justifyContent: 'space-between',
@@ -1143,5 +1046,15 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#433969',
     marginBottom: 8,
+  },
+  emptyState: {
+    paddingVertical: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  emptyStateText: {
+    color: '#7D7F8E',
+    textAlign: 'center',
   },
 });

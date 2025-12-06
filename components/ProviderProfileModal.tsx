@@ -1,6 +1,11 @@
+import { Colors } from '@/constants/Colors';
+import { db } from '@/fireBaseConfig';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import React, { useMemo, useState } from 'react';
+import { LinearGradient } from 'expo-linear-gradient';
+import { doc, getDoc } from 'firebase/firestore';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   Image,
   Pressable,
   SafeAreaView,
@@ -25,8 +30,52 @@ const tabs = [
   { key: 'reviews', label: 'Avis' },
 ] as const;
 
+type DayKey =
+  | 'sunday'
+  | 'monday'
+  | 'tuesday'
+  | 'wednesday'
+  | 'thursday'
+  | 'friday'
+  | 'saturday';
+
+type WeeklySchedule = Record<
+  DayKey,
+  {
+    start?: string;
+    end?: string;
+    active?: boolean;
+  }
+>;
+
+const jsDayToKey: DayKey[] = [
+  'sunday',
+  'monday',
+  'tuesday',
+  'wednesday',
+  'thursday',
+  'friday',
+  'saturday',
+];
+
+const defaultWeeklySchedule: WeeklySchedule = {
+  sunday: { active: false },
+  monday: { start: '09:00', end: '18:00', active: true },
+  tuesday: { start: '09:00', end: '18:00', active: true },
+  wednesday: { start: '09:00', end: '18:00', active: true },
+  thursday: { start: '09:00', end: '18:00', active: true },
+  friday: { start: '09:00', end: '18:00', active: true },
+  saturday: { active: false },
+};
+
+type AvailabilitySlot = { date: Date; status: 'available' | 'reserved' };
+type AvailabilitySection = { label: string; slots: AvailabilitySlot[] };
+
 const ProviderProfileModal = ({ provider, onClose, onContact }: ProviderProfileModalProps) => {
   const [activeTab, setActiveTab] = useState<(typeof tabs)[number]['key']>('about');
+  const [availabilitySections, setAvailabilitySections] = useState<AvailabilitySection[]>([]);
+  const [loadingAvailability, setLoadingAvailability] = useState(true);
+  const [currentMonthIndex, setCurrentMonthIndex] = useState(0);
 
   const statsCards = useMemo(
     () => [
@@ -37,14 +86,178 @@ const ProviderProfileModal = ({ provider, onClose, onContact }: ProviderProfileM
     [provider.stats],
   );
 
+  useEffect(() => {
+    const fetchAvailability = async () => {
+      setLoadingAvailability(true);
+      try {
+        const docRef = doc(db, 'contacts', provider.id);
+        const snapshot = await getDoc(docRef);
+        if (!snapshot.exists()) {
+          setAvailabilitySections([]);
+          return;
+        }
+        const data = snapshot.data();
+        const availabilityData = data.availability ?? {};
+        const weeklyData: WeeklySchedule = {
+          ...defaultWeeklySchedule,
+          ...(availabilityData.weekly ?? {}),
+        };
+
+        const blockedRangesRaw = Array.isArray(availabilityData.blockedRanges)
+          ? availabilityData.blockedRanges
+          : [];
+        const blockedRanges =
+          blockedRangesRaw.length > 0
+            ? blockedRangesRaw
+                .map((range: any) =>
+                  range && typeof range.start === 'string' && typeof range.end === 'string'
+                    ? {
+                        start: range.start,
+                        end: range.end,
+                      }
+                    : null,
+                )
+                .filter((item: any): item is { start: string; end: string } => Boolean(item))
+            : Array.isArray(availabilityData.blockedDates)
+            ? availabilityData.blockedDates
+                .filter((date: unknown): date is string => typeof date === 'string')
+                .map((date: any) => ({ start: date, end: date }))
+            : [];
+
+        const sectionsMap = new Map<string, AvailabilitySection>();
+        const today = new Date();
+        for (let offset = 0; offset < 365; offset += 1) {
+          const date = new Date(today);
+          date.setHours(0, 0, 0, 0);
+          date.setDate(today.getDate() + offset);
+          const iso = date.toISOString().split('T')[0];
+          const isBlocked = blockedRanges.some((range: any) => iso >= range.start && iso <= range.end);
+          const dayKey = jsDayToKey[date.getDay()];
+          const schedule = weeklyData[dayKey];
+          const isActive = schedule?.active && schedule.start && schedule.end;
+          if (isBlocked || !isActive) {
+            continue;
+          }
+          const monthLabel = date.toLocaleDateString('fr-FR', {
+            month: 'long',
+            year: 'numeric',
+          });
+          if (!sectionsMap.has(monthLabel)) {
+            sectionsMap.set(monthLabel, { label: monthLabel, slots: [] });
+          }
+          sectionsMap.get(monthLabel)?.slots.push({
+            date,
+            status: 'available',
+          });
+        }
+        const sections = Array.from(sectionsMap.values()).filter((section) => section.slots.length > 0);
+        setAvailabilitySections(sections);
+        setCurrentMonthIndex(0);
+      } catch (error) {
+        console.error(error);
+        setAvailabilitySections([]);
+      } finally {
+        setLoadingAvailability(false);
+      }
+    };
+
+    fetchAvailability();
+  }, [provider.id]);
+
   const renderTabContent = () => {
     switch (activeTab) {
       case 'availability':
+        const currentSection = availabilitySections[currentMonthIndex];
         return (
-          <View style={styles.infoCard}>
-            <Text style={styles.sectionTitle}>Disponibilités</Text>
-            <Text style={styles.descriptionText}>{provider.availability}</Text>
-          </View>
+          <LinearGradient
+            colors={[Colors.light.lightBlue, Colors.light.lila]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.availabilityCard}
+          >
+            <Text style={styles.sectionTitle}>Disponibilités à venir</Text>
+            {loadingAvailability ? (
+              <View style={styles.availabilityLoader}>
+                <ActivityIndicator color={Colors.light.purple} />
+              </View>
+            ) : availabilitySections.length === 0 ? (
+              <Text style={styles.emptyAvailabilityText}>
+                Ce prestataire n&apos;a pas encore publié de disponibilités.
+              </Text>
+            ) : (
+              <>
+                <View style={styles.monthNavRow}>
+                  <TouchableOpacity
+                    style={[
+                      styles.monthNavButton,
+                      currentMonthIndex === 0 && styles.monthNavButtonDisabled,
+                    ]}
+                    onPress={() => setCurrentMonthIndex((prev) => Math.max(0, prev - 1))}
+                    disabled={currentMonthIndex === 0}
+                  >
+                    <Ionicons name="chevron-back" size={18} color="#1F1F33" />
+                  </TouchableOpacity>
+                  <Text style={styles.availabilityMonth}>
+                    {currentSection?.label ?? availabilitySections[0].label}
+                  </Text>
+                  <TouchableOpacity
+                    style={[
+                      styles.monthNavButton,
+                      currentMonthIndex === availabilitySections.length - 1 && styles.monthNavButtonDisabled,
+                    ]}
+                    onPress={() =>
+                      setCurrentMonthIndex((prev) => Math.min(availabilitySections.length - 1, prev + 1))
+                    }
+                    disabled={currentMonthIndex === availabilitySections.length - 1}
+                  >
+                    <Ionicons name="chevron-forward" size={18} color="#1F1F33" />
+                  </TouchableOpacity>
+                </View>
+
+                <ScrollView
+                  style={styles.availabilityList}
+                  contentContainerStyle={styles.availabilityContent}
+                  showsVerticalScrollIndicator={false}
+                >
+                  {(currentSection?.slots ?? []).map((slot) => (
+                    <View key={slot.date.toISOString()} style={styles.availabilityItem}>
+                      <View style={styles.availabilityDate}>
+                        <Ionicons
+                          name="calendar-outline"
+                          size={16}
+                          color={slot.status === 'available' ? '#1D9A5F' : '#D6455F'}
+                        />
+                        <Text style={styles.availabilityLabel}>
+                          {slot.date.toLocaleDateString('fr-FR', {
+                            weekday: 'long',
+                            day: 'numeric',
+                            month: 'long',
+                          })}
+                        </Text>
+                      </View>
+                      <View
+                        style={[
+                          styles.statusPill,
+                          slot.status === 'available' ? styles.statusAvailable : styles.statusReserved,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.statusPillText,
+                            slot.status === 'available'
+                              ? styles.statusAvailableText
+                              : styles.statusReservedText,
+                          ]}
+                        >
+                          {slot.status === 'available' ? 'Disponible' : 'Réservé'}
+                        </Text>
+                      </View>
+                    </View>
+                  ))}
+                </ScrollView>
+              </>
+            )}
+          </LinearGradient>
         );
       case 'reviews':
         return (
@@ -89,11 +302,17 @@ const ProviderProfileModal = ({ provider, onClose, onContact }: ProviderProfileM
 
             <View style={styles.infoCard}>
               <Text style={styles.sectionTitle}>Galerie</Text>
-              <View style={styles.galleryRow}>
-                {provider.gallery.map((uri, index) => (
-                  <Image key={`${provider.id}-gallery-${index}`} source={{ uri }} style={styles.galleryImage} />
-                ))}
-              </View>
+              {provider.gallery.length === 0 ? (
+                <Text style={styles.emptyGalleryText}>
+                  Ce prestataire n&apos;a pas encore ajouté de photos.
+                </Text>
+              ) : (
+                <View style={styles.galleryRow}>
+                  {provider.gallery.map((uri, index) => (
+                    <Image key={`${provider.id}-gallery-${index}`} source={{ uri }} style={styles.galleryImage} />
+                  ))}
+                </View>
+              )}
             </View>
           </View>
         );
@@ -102,7 +321,11 @@ const ProviderProfileModal = ({ provider, onClose, onContact }: ProviderProfileM
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        nestedScrollEnabled
+      >
         <View style={styles.hero}>
           <Image source={{ uri: provider.image }} style={styles.heroImage} />
           <View style={styles.heroOverlay} />
@@ -164,7 +387,7 @@ const ProviderProfileModal = ({ provider, onClose, onContact }: ProviderProfileM
         {renderTabContent()}
 
         <Pressable style={styles.ctaButton} onPress={() => onContact(provider)}>
-          <Text style={styles.ctaText}>Contacter le prestataire</Text>
+          <Text style={styles.ctaText}>Demander un rendez-vous</Text>
         </Pressable>
       </ScrollView>
     </SafeAreaView>
@@ -320,6 +543,98 @@ const styles = StyleSheet.create({
     color: '#1F1F33',
     marginBottom: 8,
   },
+  availabilityCard: {
+    borderRadius: 22,
+    padding: 16,
+    marginHorizontal: 20,
+    marginBottom: 16,
+    gap: 12,
+  },
+  monthNavRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  monthNavButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  monthNavButtonDisabled: {
+    opacity: 0.4,
+  },
+  availabilityLoader: {
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  emptyAvailabilityText: {
+    color: '#6B7280',
+    fontStyle: 'italic',
+  },
+  availabilitySection: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    padding: 12,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 6 },
+  },
+  availabilityMonth: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#1F1F33',
+    marginBottom: 6,
+  },
+  availabilityList: {
+    marginTop: 10,
+    maxHeight: 10 * 64,
+  },
+  availabilityContent: {
+    gap: 10,
+  },
+  availabilityItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderRadius: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    backgroundColor: '#FFFFFF',
+  },
+  availabilityDate: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  availabilityLabel: {
+    fontWeight: '600',
+    color: '#1F1F33',
+    textTransform: 'capitalize',
+  },
+  statusPill: {
+    borderRadius: 12,
+    paddingVertical: 4,
+    paddingHorizontal: 12,
+  },
+  statusPillText: {
+    fontWeight: '600',
+  },
+  statusAvailable: {
+    backgroundColor: '#D8FCE3',
+  },
+  statusAvailableText: {
+    color: '#1D9A5F',
+  },
+  statusReserved: {
+    backgroundColor: '#FFD9D9',
+  },
+  statusReservedText: {
+    color: '#D6455F',
+  },
   descriptionText: {
     fontSize: 14,
     color: '#4B5563',
@@ -344,11 +659,16 @@ const styles = StyleSheet.create({
   galleryRow: {
     flexDirection: 'row',
     gap: 10,
+    marginTop: 12,
   },
   galleryImage: {
     flex: 1,
     height: 110,
     borderRadius: 16,
+  },
+  emptyGalleryText: {
+    color: '#6B7280',
+    fontStyle: 'italic',
   },
   reviewCard: {
     backgroundColor: '#F9FAFB',

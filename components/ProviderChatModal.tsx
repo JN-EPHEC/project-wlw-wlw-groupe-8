@@ -175,7 +175,7 @@ const ProviderChatModal = ({ provider, onClose }: ProviderChatModalProps) => {
       await newRecording.startAsync();
       setRecording(newRecording);
       setIsRecording(true);
-    } catch (error) {
+    } catch {
       Alert.alert('Enregistrement', "Impossible de démarrer l'enregistrement.");
     }
   }, [isBlocked, isRecording]);
@@ -195,7 +195,7 @@ const ProviderChatModal = ({ provider, onClose }: ProviderChatModalProps) => {
           voiceDuration: status.durationMillis ?? undefined,
         });
       }
-    } catch (error) {
+    } catch {
       Alert.alert('Enregistrement', "Une erreur est survenue lors de l'arrêt.");
     } finally {
       setRecording(null);
@@ -231,7 +231,7 @@ const ProviderChatModal = ({ provider, onClose }: ProviderChatModalProps) => {
             setPlayingMessageId(null);
           }
         });
-      } catch (error) {
+      } catch {
         Alert.alert('Lecture audio', 'Impossible de lire ce message vocal.');
       }
     },

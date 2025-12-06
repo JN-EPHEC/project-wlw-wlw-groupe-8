@@ -29,12 +29,11 @@ export default function ClientSignup() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [accepted, setAccepted] = useState(false);
-  const [loading, setLoading] = useState(false);
   const contactsCollection = collection(db, 'contacts');
 
   const handleGoBack = () => {
-    if(step > 0) {
-      setStep(step -1);
+    if (step > 0) {
+      setStep(step - 1);
     } else {
       router.back();
     }
@@ -42,16 +41,13 @@ export default function ClientSignup() {
   
   const signUp = async () => {
     try {
-      setLoading(true);
       const user = await createUserWithEmailAndPassword(auth, email, password);
       if(user) {
         await addDoc(contactsCollection, { lastname: lastName, firstname: firstName, type: "client", userId: user.user.uid });
         router.replace("/(tabs)/client");
       }
-    }catch(e){
+    } catch (e) {
       alert("Erreur : " + e);
-    } finally {   
-    setLoading(false);
     }
   }
 
@@ -81,7 +77,7 @@ export default function ClientSignup() {
               </Pressable>
             </View>
             <View style={styles.content}>
-              {step == 0 && 
+              {step === 0 && 
                 <ClientFirstInfo 
                   lastName={lastName} 
                   setLastName={setLastName} 
@@ -91,7 +87,7 @@ export default function ClientSignup() {
                   setStep={setStep}
                 />
               }
-              {step == 1 &&
+              {step === 1 &&
                 <ClientCredentials 
                   email={email} 
                   setEmail={setEmail} 
