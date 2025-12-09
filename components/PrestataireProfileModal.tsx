@@ -5,6 +5,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
 import {
   collection,
+  deleteField,
   doc,
   getDocs,
   query,
@@ -38,20 +39,105 @@ type Props = {
 const MAX_DESCRIPTION = 800;
 const MAX_SERVICES = 10;
 
+type EditableService = {
+  name: string;
+  price: string;
+  duration: string;
+};
+
+const extractNumericFragment = (value: unknown) => {
+  if (typeof value === 'number' && !Number.isNaN(value)) {
+    return String(value);
+  }
+  if (typeof value === 'string' && value.trim()) {
+    const match = value.trim().match(/[\d.,]+/);
+    if (match) {
+      return match[0];
+    }
+  }
+  return '';
+};
+
+const toDurationInputString = (value: unknown) => {
+  const fragment = extractNumericFragment(value);
+  return fragment ? fragment.replace(',', '.') : '';
+};
+
+const toEditableServices = (value: unknown): EditableService[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((item): EditableService | null => {
+      if (typeof item === 'string') {
+        const trimmed = item.trim();
+        if (!trimmed) return null;
+        return { name: trimmed, price: '', duration: '' };
+      }
+      if (item && typeof item === 'object') {
+        const name =
+          typeof (item as any).name === 'string' && (item as any).name.trim()
+            ? (item as any).name.trim()
+            : typeof (item as any).title === 'string' && (item as any).title.trim()
+            ? (item as any).title.trim()
+            : '';
+        if (!name) return null;
+        const duration = toDurationInputString(
+          (item as any).durationHours ?? (item as any).duration ?? (item as any).hours,
+        );
+        const priceValue =
+          typeof (item as any).priceFrom === 'number'
+            ? String((item as any).priceFrom)
+            : typeof (item as any).priceFrom === 'string'
+            ? (item as any).priceFrom
+            : typeof (item as any).price === 'number'
+            ? String((item as any).price)
+            : typeof (item as any).price === 'string'
+            ? (item as any).price
+            : typeof (item as any).priceMin === 'number'
+            ? String((item as any).priceMin)
+            : typeof (item as any).priceMin === 'string'
+            ? (item as any).priceMin
+            : '';
+        return {
+          name,
+          duration,
+          price: priceValue,
+        };
+      }
+      return null;
+    })
+    .filter((service): service is EditableService => Boolean(service));
+};
+
+const toNumericPrice = (value: string) => {
+  const cleaned = value.replace(/[^\d.,-]/g, '').replace(',', '.');
+  if (!cleaned) return null;
+  const parsed = Number(cleaned);
+  return Number.isNaN(parsed) ? null : parsed;
+};
+
+const toDurationHours = (value: string) => {
+  const cleaned = value.replace(/[^\d.,-]/g, '').replace(',', '.');
+  if (!cleaned) return null;
+  const parsed = Number(cleaned);
+  if (Number.isNaN(parsed) || parsed <= 0) {
+    return null;
+  }
+  return parsed;
+};
+
 export function PrestataireProfileModal({ visible, onClose }: Props) {
   const router = useRouter();
   const [documentId, setDocumentId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [description, setDescription] = useState('');
-  const [services, setServices] = useState<string[]>([]);
+  const [services, setServices] = useState<EditableService[]>([]);
   const [photos, setPhotos] = useState<string[]>([]);
   const [profilePhoto, setProfilePhoto] = useState('');
-  const [serviceInput, setServiceInput] = useState('');
   const [uploadingProfilePhoto, setUploadingProfilePhoto] = useState(false);
   const [uploadingGalleryPhoto, setUploadingGalleryPhoto] = useState(false);
-  const [priceMin, setPriceMin] = useState('');
-  const [priceMax, setPriceMax] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   const fetchProfile = useCallback(async () => {
@@ -86,20 +172,14 @@ export function PrestataireProfileModal({ visible, onClose }: Props) {
       setDocumentId(docSnap.id);
       const data = docSnap.data();
       setDescription(typeof data.description === 'string' ? data.description : '');
-      setServices(
-        Array.isArray(data.services)
-          ? data.services.filter((item): item is string => typeof item === 'string')
-          : [],
-      );
+      const parsedServices = toEditableServices(data.services);
+      setServices(parsedServices);
       setPhotos(
         Array.isArray(data.gallery)
           ? data.gallery.filter((item): item is string => typeof item === 'string')
           : [],
       );
       setProfilePhoto(typeof data.profilePhoto === 'string' ? data.profilePhoto : '');
-      const pricing = data.pricing ?? {};
-      setPriceMin(pricing.min ? String(pricing.min) : '');
-      setPriceMax(pricing.max ? String(pricing.max) : '');
       setError(null);
     } catch (err) {
       console.error(err);
@@ -121,22 +201,22 @@ export function PrestataireProfileModal({ visible, onClose }: Props) {
   );
 
   const handleAddService = () => {
-    if (!serviceInput.trim()) return;
-    if (serviceInput.length > 50) {
-      setError('Un service ne peut pas dépasser 50 caractères.');
-      return;
-    }
     if (services.length >= MAX_SERVICES) {
       setError('Vous avez atteint la limite de services.');
       return;
     }
-    setServices((prev) => [...prev, serviceInput.trim()]);
-    setServiceInput('');
+    setServices((prev) => [...prev, { name: '', price: '', duration: '' }]);
     setError(null);
   };
 
   const handleRemoveService = (index: number) => {
     setServices((prev) => prev.filter((_, idx) => idx !== index));
+  };
+
+  const handleServiceFieldChange = (index: number, key: keyof EditableService, value: string) => {
+    setServices((prev) =>
+      prev.map((service, idx) => (idx === index ? { ...service, [key]: value } : service)),
+    );
   };
 
   const handleRemovePhoto = (index: number) => {
@@ -212,15 +292,33 @@ export function PrestataireProfileModal({ visible, onClose }: Props) {
     }
     setSaving(true);
     try {
+      const normalizedServices = services
+        .map((service) => ({
+          name: service.name.trim(),
+          durationHours: toDurationHours(service.duration),
+          priceFrom: toNumericPrice(service.price),
+        }))
+        .filter((service) => Boolean(service.name));
+      const hasInvalidService =
+        normalizedServices.length === 0 ||
+        normalizedServices.some(
+          (service) => service.priceFrom === null || service.durationHours === null,
+        );
+      if (hasInvalidService) {
+        setError('Chaque service doit avoir un nom, un prix minimum et une durée en heures.');
+        setSaving(false);
+        return;
+      }
       await updateDoc(doc(db, 'contacts', documentId), {
         description,
-        services,
+        services: normalizedServices.map((service) => ({
+          name: service.name,
+          durationHours: service.durationHours,
+          priceFrom: service.priceFrom,
+        })),
         gallery: photos,
         profilePhoto,
-        pricing: {
-          min: priceMin ? Number(priceMin) : null,
-          max: priceMax ? Number(priceMax) : null,
-        },
+        pricing: deleteField(),
       });
       onClose();
     } catch (err) {
@@ -378,69 +476,68 @@ export function PrestataireProfileModal({ visible, onClose }: Props) {
 
               <View style={styles.card}>
                 <Text style={styles.sectionTitle}>Services proposés</Text>
-                <View style={styles.servicesList}>
+                <Text style={styles.serviceHelperText}>
+                  Indiquez un prix minimum et une durée pour chaque service.
+                </Text>
+                <View style={styles.serviceEditors}>
+                  {services.length === 0 ? (
+                    <Text style={styles.emptyServiceText}>Ajoutez votre premier service.</Text>
+                  ) : null}
                   {services.map((service, index) => (
-                    <View key={`${service}-${index}`} style={styles.serviceItem}>
-                      <Text style={styles.serviceLabel}>{service}</Text>
-                      <Pressable onPress={() => handleRemoveService(index)} hitSlop={8}>
-                        <Ionicons name="close" size={16} color="#D6455F" />
-                      </Pressable>
+                    <View key={`service-${index}`} style={styles.serviceEditor}>
+                      <View style={styles.serviceEditorHeader}>
+                        <Text style={styles.serviceEditorTitle}>Service {index + 1}</Text>
+                        <Pressable onPress={() => handleRemoveService(index)} hitSlop={8}>
+                          <Ionicons name="close" size={16} color="#D6455F" />
+                        </Pressable>
+                      </View>
+                      <TextInput
+                        placeholder="Nom du service"
+                        placeholderTextColor="#A0A1AF"
+                        value={service.name}
+                        onChangeText={(value) => handleServiceFieldChange(index, 'name', value)}
+                        style={styles.serviceNameInput}
+                      />
+                      <View style={styles.serviceFieldsRow}>
+                        <View style={styles.serviceField}>
+                          <Text style={styles.serviceFieldLabel}>Prix minimum</Text>
+                          <View style={styles.servicePriceInputWrapper}>
+                            <TextInput
+                              keyboardType="numeric"
+                              value={service.price}
+                              onChangeText={(value) => handleServiceFieldChange(index, 'price', value)}
+                              placeholder="0"
+                              style={styles.servicePriceInput}
+                            />
+                            <Text style={styles.serviceCurrency}>€</Text>
+                          </View>
+                        </View>
+                        <View style={styles.serviceField}>
+                          <Text style={styles.serviceFieldLabel}>Durée (heures)</Text>
+                          <TextInput
+                            placeholder="ex: 2"
+                            placeholderTextColor="#A0A1AF"
+                            value={service.duration}
+                            onChangeText={(value) => handleServiceFieldChange(index, 'duration', value)}
+                            style={styles.serviceDurationInput}
+                            keyboardType="numeric"
+                          />
+                        </View>
+                      </View>
                     </View>
                   ))}
                 </View>
-                <View style={styles.serviceInputRow}>
-                  <TextInput
-                    placeholder="Nouveau service (max 50 car.)"
-                    placeholderTextColor="#A0A1AF"
-                    value={serviceInput}
-                    onChangeText={setServiceInput}
-                    maxLength={50}
-                    style={styles.serviceInput}
-                  />
-                  <TouchableOpacity style={styles.serviceAddButton} onPress={handleAddService}>
-                    <LinearGradient
-                      colors={[Colors.light.pink, Colors.light.purple]}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      style={styles.serviceAddGradient}
-                    >
-                      <Ionicons name="add" size={16} color="#FFFFFF" />
-                    </LinearGradient>
-                  </TouchableOpacity>
-                </View>
-                <Text style={styles.helperText}>{serviceInput.length}/50 caractères</Text>
-              </View>
-
-              <View style={styles.card}>
-                <Text style={styles.sectionTitle}>Tarifs</Text>
-                <View style={styles.pricingRow}>
-                  <View style={styles.priceField}>
-                    <Text style={styles.priceLabel}>Prix minimum</Text>
-                    <View style={styles.priceInputWrapper}>
-                      <TextInput
-                        keyboardType="numeric"
-                        value={priceMin}
-                        onChangeText={setPriceMin}
-                        placeholder="0"
-                        style={styles.priceInput}
-                      />
-                      <Text style={styles.priceCurrency}>€</Text>
-                    </View>
-                  </View>
-                  <View style={styles.priceField}>
-                    <Text style={styles.priceLabel}>Prix maximum</Text>
-                    <View style={styles.priceInputWrapper}>
-                      <TextInput
-                        keyboardType="numeric"
-                        value={priceMax}
-                        onChangeText={setPriceMax}
-                        placeholder="0"
-                        style={styles.priceInput}
-                      />
-                      <Text style={styles.priceCurrency}>€</Text>
-                    </View>
-                  </View>
-                </View>
+                <TouchableOpacity style={styles.addServiceButton} onPress={handleAddService}>
+                  <LinearGradient
+                    colors={[Colors.light.pink, Colors.light.purple]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.addServiceGradient}
+                  >
+                    <Ionicons name="add" size={16} color="#FFFFFF" />
+                    <Text style={styles.addServiceLabel}>Ajouter un service</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
               </View>
 
               {error ? <Text style={styles.errorText}>{error}</Text> : null}
@@ -538,6 +635,11 @@ const styles = StyleSheet.create({
     color: '#8B8C99',
     textAlign: 'right',
   },
+  serviceHelperText: {
+    marginTop: 6,
+    fontSize: 12,
+    color: '#8B8C99',
+  },
   photoWrapper: {
     width: 90,
     height: 90,
@@ -592,9 +694,13 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: '600',
   },
-  servicesList: {
-    marginTop: 12,
-    gap: 10,
+  serviceEditors: {
+    marginTop: 16,
+    gap: 16,
+  },
+  emptyServiceText: {
+    color: '#8B8C99',
+    fontStyle: 'italic',
   },
   profileRow: {
     flexDirection: 'row',
@@ -642,77 +748,86 @@ const styles = StyleSheet.create({
     color: '#D6455F',
     fontWeight: '600',
   },
-  serviceItem: {
+  serviceEditor: {
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: '#E0E2EC',
+    padding: 16,
+    backgroundColor: '#F9F9FE',
+    gap: 12,
+  },
+  serviceEditorHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 18,
-    backgroundColor: '#F7F8FC',
   },
-  serviceLabel: {
+  serviceEditorTitle: {
+    fontWeight: '700',
     color: '#1F1F33',
-    fontWeight: '600',
   },
-  serviceInputRow: {
+  serviceNameInput: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E0E2EC',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    color: '#1F1F33',
+  },
+  serviceFieldsRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 14,
     gap: 12,
   },
-  serviceInput: {
+  serviceField: {
     flex: 1,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#E0E2EC',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    color: '#1F1F33',
+    gap: 6,
   },
-  serviceAddButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 16,
-    overflow: 'hidden',
-  },
-  serviceAddGradient: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  pricingRow: {
-    flexDirection: 'row',
-    gap: 16,
-    marginTop: 16,
-  },
-  priceField: {
-    flex: 1,
-  },
-  priceLabel: {
+  serviceFieldLabel: {
     fontSize: 13,
     color: '#6D6E7F',
+    fontWeight: '600',
   },
-  priceInputWrapper: {
-    marginTop: 6,
+  servicePriceInputWrapper: {
     borderRadius: 16,
     borderWidth: 1,
     borderColor: '#E0E2EC',
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     paddingVertical: 10,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: '#F7F8FC',
+    backgroundColor: '#FFFFFF',
   },
-  priceInput: {
+  servicePriceInput: {
     flex: 1,
     color: '#1F1F33',
     fontWeight: '600',
   },
-  priceCurrency: {
+  serviceCurrency: {
     fontWeight: '700',
+    color: '#6D6E7F',
+  },
+  serviceDurationInput: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E0E2EC',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     color: '#1F1F33',
+  },
+  addServiceButton: {
+    marginTop: 16,
+  },
+  addServiceGradient: {
+    borderRadius: 18,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  addServiceLabel: {
+    color: '#FFFFFF',
+    fontWeight: '600',
   },
   errorText: {
     color: Colors.light.pink,

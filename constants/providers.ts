@@ -5,6 +5,12 @@ export type ProviderReview = {
   comment: string;
 };
 
+export type ProviderService = {
+  name: string;
+  priceFrom?: number | null;
+  durationHours?: number | null;
+};
+
 export type Provider = {
   id: string;
   name: string;
@@ -20,10 +26,9 @@ export type Provider = {
     events: number;
   };
   location: string;
-  priceRange: string;
   responseTime: string;
   description: string;
-  services: string[];
+  services: ProviderService[];
   gallery: string[];
   availability: string;
   reviews: ProviderReview[];
@@ -46,11 +51,15 @@ export const providers: Provider[] = [
       events: 210,
     },
     location: 'Anvers, Belgique',
-    priceRange: '400 € - 650 €',
     responseTime: 'Répond en moins de 2h',
     description:
       'Collectif de photographes spécialisés dans les mariages modernes et les événements privés raffinés. Nous privilégions les détails élégants et les émotions authentiques.',
-    services: ['Reportage photo complet', 'Retouches sous 48h', 'Album prestige', 'Photobooth'],
+    services: [
+      { name: 'Reportage photo complet', priceFrom: 450, durationHours: 8 },
+      { name: 'Retouches sous 48h', priceFrom: 120, durationHours: 2 },
+      { name: 'Album prestige', priceFrom: 180, durationHours: 3 },
+      { name: 'Photobooth', priceFrom: 220, durationHours: 5 },
+    ],
     gallery: [
       'https://images.pexels.com/photos/1024993/pexels-photo-1024993.jpeg?auto=compress&cs=tinysrgb&w=600',
       'https://images.pexels.com/photos/265947/pexels-photo-265947.jpeg?auto=compress&cs=tinysrgb&w=600',
@@ -88,11 +97,15 @@ export const providers: Provider[] = [
       events: 320,
     },
     location: 'Liège, Belgique',
-    priceRange: '30 € - 55 €/pers',
     responseTime: 'Répond sous 3h',
     description:
       'Cuisine généreuse et savoir-faire gastronomique belge. Saveurs locales, produits de saison et dressages créatifs.',
-    services: ['Cocktails dînatoires', 'Buffets thématiques', 'Menu gastronomique', 'Service en salle'],
+    services: [
+      { name: 'Cocktails dînatoires', priceFrom: 32, durationHours: 2 },
+      { name: 'Buffets thématiques', priceFrom: 38, durationHours: 3 },
+      { name: 'Menu gastronomique', priceFrom: 55, durationHours: 4 },
+      { name: 'Service en salle', priceFrom: 25, durationHours: 5 },
+    ],
     gallery: [
       'https://images.pexels.com/photos/262978/pexels-photo-262978.jpeg?auto=compress&cs=tinysrgb&w=600',
       'https://images.pexels.com/photos/5938/food-salad-healthy-lunch.jpg?auto=compress&cs=tinysrgb&w=600',
@@ -130,11 +143,15 @@ export const providers: Provider[] = [
       events: 260,
     },
     location: 'Bruxelles, Belgique',
-    priceRange: '650 € - 950 €',
     responseTime: 'Répond en moins de 1h',
     description:
       'DJ résident sur Bruxelles avec une forte expérience corporate et nightlife. Mixs personnalisés, lumière intelligente et show interactif.',
-    services: ['Mix live', 'Light show', 'Playlists sur-mesure', 'Coordination technique'],
+    services: [
+      { name: 'Mix live', priceFrom: 650, durationHours: 4 },
+      { name: 'Light show', priceFrom: 240, durationHours: 2 },
+      { name: 'Playlists sur-mesure', priceFrom: 120, durationHours: 3 },
+      { name: 'Coordination technique', priceFrom: 180, durationHours: 5 },
+    ],
     gallery: [
       'https://images.pexels.com/photos/1699168/pexels-photo-1699168.jpeg?auto=compress&cs=tinysrgb&w=600',
       'https://images.pexels.com/photos/1105666/pexels-photo-1105666.jpeg?auto=compress&cs=tinysrgb&w=600',
@@ -166,11 +183,15 @@ export const providers: Provider[] = [
       events: 150,
     },
     location: 'Namur, Belgique',
-    priceRange: '150 € - 450 €',
     responseTime: 'Répond sous 4h',
     description:
       'Studio floral créatif spécialisé dans les mariages intimistes. Style naturel, matières locales et palettes sur-mesure.',
-    services: ['Bouquets mariée', 'Décors de table', 'Mur floral', 'Livraison et installation'],
+    services: [
+      { name: 'Bouquets mariée', priceFrom: 180, durationHours: 2 },
+      { name: 'Décors de table', priceFrom: 220, durationHours: 3 },
+      { name: 'Mur floral', priceFrom: 450, durationHours: 4 },
+      { name: 'Livraison et installation', priceFrom: 90, durationHours: 1 },
+    ],
     gallery: [
       'https://images.pexels.com/photos/931162/pexels-photo-931162.jpeg?auto=compress&cs=tinysrgb&w=600',
       'https://images.pexels.com/photos/1019470/pexels-photo-1019470.jpeg?auto=compress&cs=tinysrgb&w=600',

@@ -30,14 +30,18 @@ type DayKey =
   | 'saturday'
   | 'sunday';
 
-type WeeklySchedule = Record<
-  DayKey,
-  {
-    start: string;
-    end: string;
-    active: boolean;
-  }
->;
+type TimeWindow = {
+  start: string;
+  end: string;
+};
+
+type DaySchedule = {
+  active: boolean;
+  start: string;
+  end: string;
+};
+
+type WeeklySchedule = Record<DayKey, DaySchedule>;
 
 type CalendarStatus = 'available' | 'unavailable';
 
@@ -62,7 +66,12 @@ const jsDayToKey: DayKey[] = [
 ];
 
 const defaultWeeklySchedule: WeeklySchedule = dayConfig.reduce((acc, day) => {
-  acc[day.key] = { start: '09:00', end: '18:00', active: true };
+  const isWeekend = day.key === 'saturday' || day.key === 'sunday';
+  acc[day.key] = {
+    active: !isWeekend,
+    start: !isWeekend ? '09:00' : '',
+    end: !isWeekend ? '18:00' : '',
+  };
   return acc;
 }, {} as WeeklySchedule);
 
@@ -201,14 +210,36 @@ export default function PrestataireScreen() {
 
       const normalizedWeekly = dayConfig.reduce((acc, day) => {
         const persisted = weekly[day.key] ?? {};
+        const persistedSlots = Array.isArray(persisted.slots)
+          ? persisted.slots
+              .map((slot: any) =>
+                slot &&
+                typeof slot.start === 'string' &&
+                slot.start &&
+                typeof slot.end === 'string' &&
+                slot.end
+                  ? { start: slot.start, end: slot.end }
+                  : null,
+              )
+              .filter((slot): slot is { start: string; end: string } => Boolean(slot))
+          : [];
+        const slotStart = persistedSlots[0]?.start;
+        const slotEnd = persistedSlots[0]?.end;
+        const start =
+          typeof persisted.start === 'string' && persisted.start
+            ? persisted.start
+            : slotStart ?? (persisted.active ? '09:00' : '');
+        const end =
+          typeof persisted.end === 'string' && persisted.end
+            ? persisted.end
+            : slotEnd ?? (persisted.active ? '18:00' : '');
+        const hasWindow = Boolean(start && end);
         const isActive =
-          typeof persisted.active === 'boolean'
-            ? persisted.active
-            : Boolean(persisted.start && persisted.end);
+          typeof persisted.active === 'boolean' ? persisted.active : hasWindow;
         acc[day.key] = {
-          start: persisted.start ?? (isActive ? '09:00' : ''),
-          end: persisted.end ?? (isActive ? '18:00' : ''),
           active: isActive,
+          start: isActive ? start || '09:00' : '',
+          end: isActive ? end || '18:00' : '',
         };
         return acc;
       }, {} as WeeklySchedule);
@@ -256,7 +287,7 @@ export default function PrestataireScreen() {
     const jsDay = new Date(currentYear, currentMonth, day).getDay();
     const key = jsDayToKey[jsDay];
     const schedule = weeklySchedule[key];
-    if (schedule?.active) {
+    if (schedule?.active && schedule.start && schedule.end) {
       return 'available';
     }
     return 'unavailable';
@@ -294,13 +325,12 @@ export default function PrestataireScreen() {
     setAvailabilityModalVisible((prev) => !prev);
   };
 
-  const handleTimeChange = (day: DayKey, key: 'start' | 'end', value: string) => {
+  const handleTimeChange = (day: DayKey, field: 'start' | 'end', value: string) => {
     setWeeklySchedule((prev) => ({
       ...prev,
       [day]: {
         ...prev[day],
-        active: true,
-        [key]: value,
+        [field]: value,
       },
     }));
   };
@@ -311,9 +341,9 @@ export default function PrestataireScreen() {
       return {
         ...prev,
         [day]: {
+          active: nextActive,
           start: nextActive ? prev[day].start || '09:00' : '',
           end: nextActive ? prev[day].end || '18:00' : '',
-          active: nextActive,
         },
       };
     });
@@ -354,9 +384,20 @@ export default function PrestataireScreen() {
       const legacyBlockedDates = blockedRanges
         .filter((range) => range.start === range.end)
         .map((range) => range.start);
+      const serializedWeekly = dayConfig.reduce((acc, day) => {
+        const schedule = weeklySchedule[day.key];
+        const hasWindow = schedule.active && schedule.start && schedule.end;
+        acc[day.key] = {
+          active: schedule.active,
+          start: schedule.start,
+          end: schedule.end,
+          slots: hasWindow ? [{ start: schedule.start, end: schedule.end }] : [],
+        };
+        return acc;
+      }, {} as Record<DayKey, { active: boolean; start: string; end: string; slots: TimeWindow[] }>);
       await updateDoc(doc(db, 'contacts', documentId), {
         availability: {
-          weekly: weeklySchedule,
+          weekly: serializedWeekly,
           blockedRanges,
           blockedDates: legacyBlockedDates,
         },
@@ -525,31 +566,36 @@ export default function PrestataireScreen() {
                         />
                       </View>
                     </View>
-                  <View style={styles.timeInputs}>
-                    <View style={styles.timeField}>
-                      <Ionicons name="time-outline" size={16} color="#7A7C8C" />
-                      <TextInput
-                        value={schedule.start}
-                        editable={!disabled}
-                        onChangeText={(value) => handleTimeChange(day.key, 'start', value)}
-                        placeholder="09:00"
-                        keyboardType="numbers-and-punctuation"
-                        style={[styles.timeInput, disabled && styles.disabledInput]}
-                      />
+                    <View>
+                      <View style={styles.timeInputs}>
+                        <View style={styles.timeField}>
+                          <Ionicons name="time-outline" size={16} color="#7A7C8C" />
+                          <TextInput
+                            value={schedule.start}
+                            editable={!disabled}
+                            onChangeText={(value) => handleTimeChange(day.key, 'start', value)}
+                            placeholder="09:00"
+                            keyboardType="numbers-and-punctuation"
+                            style={[styles.timeInput, disabled && styles.disabledInput]}
+                          />
+                        </View>
+                        <Text style={styles.separator}>-</Text>
+                        <View style={styles.timeField}>
+                          <Ionicons name="time-outline" size={16} color="#7A7C8C" />
+                          <TextInput
+                            value={schedule.end}
+                            editable={!disabled}
+                            onChangeText={(value) => handleTimeChange(day.key, 'end', value)}
+                            placeholder="18:00"
+                            keyboardType="numbers-and-punctuation"
+                            style={[styles.timeInput, disabled && styles.disabledInput]}
+                          />
+                        </View>
+                      </View>
+                      {!disabled ? (
+                        <Text style={styles.timeHint}>Heures pendant lesquelles vous acceptez des rendez-vous.</Text>
+                      ) : null}
                     </View>
-                    <Text style={styles.separator}>-</Text>
-                    <View style={styles.timeField}>
-                      <Ionicons name="time-outline" size={16} color="#7A7C8C" />
-                      <TextInput
-                        value={schedule.end}
-                        editable={!disabled}
-                        onChangeText={(value) => handleTimeChange(day.key, 'end', value)}
-                        placeholder="18:00"
-                        keyboardType="numbers-and-punctuation"
-                        style={[styles.timeInput, disabled && styles.disabledInput]}
-                      />
-                    </View>
-                  </View>
                   </View>
                 );
               })}
@@ -921,6 +967,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     color: '#6D6E7F',
+  },
+  timeHint: {
+    marginTop: 6,
+    fontSize: 12,
+    color: '#8B8C99',
   },
   blockedInputs: {
     flexDirection: 'row',

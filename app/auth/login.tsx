@@ -4,12 +4,15 @@ import { useThemeColors } from '@/hooks/UseThemeColors';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import { signInWithEmailAndPassword } from 'firebase/auth';
+import { FirebaseError } from 'firebase/app';
+import { sendPasswordResetEmail, signInWithEmailAndPassword } from 'firebase/auth';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import React, { useMemo, useState } from 'react';
 
 import {
+  Image,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -25,6 +28,12 @@ export default function SignInScreen() {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetModalVisible, setResetModalVisible] = useState(false);
+  const [sendingReset, setSendingReset] = useState(false);
+  const [resetFeedback, setResetFeedback] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const contactsCollection = collection(db, 'contacts');
 
 
@@ -32,6 +41,8 @@ export default function SignInScreen() {
 
   const handleSignIn = async () => {
     try {
+      setSubmitting(true);
+      setAuthError(null);
       const user = await signInWithEmailAndPassword(auth, email, password);
       const q = query(contactsCollection, where("userId", "==", user.user.uid));
       const data = await getDocs(q);
@@ -43,8 +54,15 @@ export default function SignInScreen() {
         router.replace('/(tabs)/client');
         return;
       }
-    } catch(error) {
-      console.error('Erreur lors de la connexion : ', error);
+    } catch (err) {
+      if (err instanceof FirebaseError && err.code === 'auth/invalid-credential') {
+        setAuthError("Email ou mot de passe incorrect. Veuillez réessayer.");
+      } else {
+        console.error('Erreur lors de la connexion : ', err);
+        setAuthError("Une erreur est survenue. Merci de réessayer plus tard.");
+      }
+    } finally {
+      setSubmitting(false);
     }
 
   };
@@ -69,7 +87,11 @@ export default function SignInScreen() {
             </Pressable>
 
             <View style={styles.card}>
-              <View style={styles.logoPlaceholder} />
+              <Image
+                source={require('@/assets/images/9db6d727a0d8bccb023dba357b419979d8ccb303.png')}
+                style={styles.logo}
+                resizeMode="contain"
+              />
 
               <ThemedText variant="title" color="black" style={styles.title}>
                 Connexion
@@ -93,23 +115,35 @@ export default function SignInScreen() {
                   secureTextEntry
                   style={[styles.input, { backgroundColor: Colors.light.lightBlue }]}
                 />
-                <Pressable style={styles.forgotPassword}>
+                <Pressable
+                  style={styles.forgotPassword}
+                  onPress={() => {
+                    setResetEmail(email);
+                    setResetFeedback(null);
+                    setResetModalVisible(true);
+                  }}
+                >
                   <ThemedText color="purple">Mot de passe oublié ?</ThemedText>
                 </Pressable>
               </View>
 
-              <Pressable style={styles.primaryButton} onPress={handleSignIn} disabled={!canSubmit}>
+              <Pressable style={styles.primaryButton} onPress={handleSignIn} disabled={!canSubmit || submitting}>
                 <LinearGradient
                   colors={[Colors.light.pink, Colors.light.purple, Colors.light.blue]}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 1 }}
-                  style={[styles.primaryGradient, !canSubmit && styles.primaryDisabled]}
+                  style={[styles.primaryGradient, (!canSubmit || submitting) && styles.primaryDisabled]}
                 >
                   <ThemedText color="white" style={styles.primaryLabel}>
-                    Se connecter
+                    {submitting ? 'Connexion...' : 'Se connecter'}
                   </ThemedText>
                 </LinearGradient>
               </Pressable>
+              {authError ? (
+                <ThemedText color="pink" style={styles.errorText}>
+                  {authError}
+                </ThemedText>
+              ) : null}
 
               <View style={styles.divider}>
                 <View style={styles.dividerLine} />
@@ -121,13 +155,22 @@ export default function SignInScreen() {
 
               <View style={styles.socialButtons}>
                 <Pressable style={styles.socialButton}>
-                  <ThemedText color="black">Google</ThemedText>
+                  <Ionicons name="logo-google" size={18} color={Colors.light.black} style={styles.socialIconLeft} />
+                  <ThemedText color="black" style={styles.socialLabel}>
+                    Google
+                  </ThemedText>
                 </Pressable>
                 <Pressable style={[styles.socialButton, styles.socialApple]}>
-                  <ThemedText color="white">Apple</ThemedText>
+                  <Ionicons name="logo-apple" size={18} color={Colors.light.white} style={styles.socialIconLeft} />
+                  <ThemedText color="white" style={styles.socialLabel}>
+                    Apple
+                  </ThemedText>
                 </Pressable>
                 <Pressable style={[styles.socialButton, styles.socialFacebook]}>
-                  <ThemedText color="white">Facebook</ThemedText>
+                  <Ionicons name="logo-facebook" size={18} color={Colors.light.white} style={styles.socialIconLeft} />
+                  <ThemedText color="white" style={styles.socialLabel}>
+                    Facebook
+                  </ThemedText>
                 </Pressable>
               </View>
             </View>
@@ -143,6 +186,72 @@ export default function SignInScreen() {
           </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>
+
+      <Modal animationType="slide" visible={resetModalVisible} onRequestClose={() => setResetModalVisible(false)}>
+        <View style={styles.resetFullScreen}>
+          <View style={styles.resetCard}>
+            <Pressable onPress={() => setResetModalVisible(false)} hitSlop={12} style={styles.resetClose}>
+              <Ionicons name="close" size={22} color={Colors.light.black} />
+            </Pressable>
+            <View style={styles.resetHeader}>
+              <ThemedText variant="title" color="black">
+                Réinitialiser le mot de passe
+              </ThemedText>
+            </View>
+            <ThemedText color="black">
+              Entrez l’adresse e-mail associée à votre compte pour recevoir un lien de réinitialisation.
+            </ThemedText>
+            <TextInput
+              placeholder="monadresse@email.com"
+              placeholderTextColor={colors.gray}
+              autoCapitalize="none"
+              keyboardType="email-address"
+              value={resetEmail}
+              onChangeText={(value) => {
+                setResetEmail(value);
+                setResetFeedback(null);
+              }}
+              style={[styles.input, { backgroundColor: Colors.light.lightBlue, marginTop: 16 }]}
+            />
+            {resetFeedback ? (
+              <ThemedText color={resetFeedback.includes('envoyé') ? 'green' : 'pink'} style={styles.resetFeedback}>
+                {resetFeedback}
+              </ThemedText>
+            ) : null}
+            <Pressable
+              style={[styles.primaryButton, styles.resetButton]}
+              onPress={async () => {
+                if (!resetEmail.trim()) {
+                  setResetFeedback('Veuillez indiquer une adresse e-mail.');
+                  return;
+                }
+                try {
+                  setSendingReset(true);
+                  setResetFeedback(null);
+                  await sendPasswordResetEmail(auth, resetEmail.trim());
+                  setResetFeedback('Un e-mail de réinitialisation vient de vous être envoyé.');
+                } catch {
+                  setResetFeedback("Impossible d'envoyer l'e-mail. Vérifiez votre adresse.");
+                } finally {
+                  setSendingReset(false);
+                }
+              }}
+              disabled={sendingReset}
+            >
+              <LinearGradient
+                colors={[Colors.light.pink, Colors.light.purple]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={[styles.primaryGradient, sendingReset && styles.primaryDisabled]}
+              >
+                <ThemedText color="white" style={styles.primaryLabel}>
+                  {sendingReset ? 'Envoi...' : 'Envoyer le lien'}
+                </ThemedText>
+              </LinearGradient>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -177,12 +286,10 @@ const styles = StyleSheet.create({
     shadowRadius: 24,
     elevation: 6,
   },
-  logoPlaceholder: {
-    width: 90,
-    height: 90,
-    borderRadius: 24,
+  logo: {
+    width: 110,
+    height: 110,
     alignSelf: 'center',
-    backgroundColor: Colors.light.lightBlue,
   },
   title: {
     textAlign: 'center',
@@ -235,11 +342,20 @@ const styles = StyleSheet.create({
   },
   socialButton: {
     borderRadius: 16,
-    paddingVertical: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: Colors.light.white,
     borderWidth: 1,
     borderColor: Colors.light.lightBlue,
+  },
+  socialIconLeft: {
+    marginRight: 12,
+  },
+  socialLabel: {
+    flex: 1,
+    textAlign: 'center',
   },
   socialApple: {
     backgroundColor: Colors.light.black,
@@ -257,5 +373,33 @@ const styles = StyleSheet.create({
   },
   footerLink: {
     fontWeight: '600',
+  },
+  errorText: {
+    textAlign: 'center',
+  },
+  resetFullScreen: {
+    flex: 1,
+    backgroundColor: Colors.light.background,
+    paddingHorizontal: 24,
+    paddingTop: 48,
+  },
+  resetCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    padding: 22,
+    gap: 16,
+  },
+  resetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  resetClose: {
+    alignSelf: 'flex-end',
+  },
+  resetFeedback: {
+    textAlign: 'center',
+  },
+  resetButton: {
+    marginTop: 8,
   },
 });

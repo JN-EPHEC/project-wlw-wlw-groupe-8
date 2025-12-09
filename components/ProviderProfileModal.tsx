@@ -1,12 +1,24 @@
 import { Colors } from '@/constants/Colors';
-import { db } from '@/fireBaseConfig';
+import { auth, db } from '@/fireBaseConfig';
+import { generateBookableSlots, type TimeSlot } from '@/utils/availability';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { doc, getDoc } from 'firebase/firestore';
-import React, { useEffect, useMemo, useState } from 'react';
+import {
+  addDoc,
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  query,
+  serverTimestamp,
+  where,
+} from 'firebase/firestore';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Image,
+  Modal,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -39,14 +51,12 @@ type DayKey =
   | 'friday'
   | 'saturday';
 
-type WeeklySchedule = Record<
-  DayKey,
-  {
-    start?: string;
-    end?: string;
-    active?: boolean;
-  }
->;
+type DaySchedule = {
+  active: boolean;
+  slots: TimeSlot[];
+};
+type WeeklySchedule = Record<DayKey, DaySchedule>;
+type DayAvailability = { iso: string; date: Date; slots: TimeSlot[] };
 
 const jsDayToKey: DayKey[] = [
   'sunday',
@@ -58,24 +68,71 @@ const jsDayToKey: DayKey[] = [
   'saturday',
 ];
 
-const defaultWeeklySchedule: WeeklySchedule = {
-  sunday: { active: false },
-  monday: { start: '09:00', end: '18:00', active: true },
-  tuesday: { start: '09:00', end: '18:00', active: true },
-  wednesday: { start: '09:00', end: '18:00', active: true },
-  thursday: { start: '09:00', end: '18:00', active: true },
-  friday: { start: '09:00', end: '18:00', active: true },
-  saturday: { active: false },
+const monthNames = [
+  'Janvier',
+  'Février',
+  'Mars',
+  'Avril',
+  'Mai',
+  'Juin',
+  'Juillet',
+  'Août',
+  'Septembre',
+  'Octobre',
+  'Novembre',
+  'Décembre',
+];
+
+const toISODateString = (year: number, month: number, day: number) => {
+  return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 };
 
-type AvailabilitySlot = { date: Date; status: 'available' | 'reserved' };
-type AvailabilitySection = { label: string; slots: AvailabilitySlot[] };
+const formatISODateFromDate = (date: Date) =>
+  toISODateString(date.getFullYear(), date.getMonth(), date.getDate());
+
+const formatDisplayDate = (iso?: string | null) => {
+  if (!iso) return '';
+  const [year, month, day] = iso.split('-').map((value) => Number(value));
+  if (!year || !month || !day) return iso;
+  const parsed = new Date(year, month - 1, day);
+  return parsed.toLocaleDateString('fr-FR', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+};
+
+const formatServicePrice = (value?: number | null) => {
+  if (typeof value === 'number' && !Number.isNaN(value)) {
+    return `${value.toFixed(2).replace('.', ',')} €`;
+  }
+  return 'Sur devis';
+};
+
+const formatServiceDuration = (value?: number | null) => {
+  if (typeof value !== 'number' || Number.isNaN(value) || value <= 0) {
+    return null;
+  }
+  return `${value} h`;
+};
 
 const ProviderProfileModal = ({ provider, onClose, onContact }: ProviderProfileModalProps) => {
   const [activeTab, setActiveTab] = useState<(typeof tabs)[number]['key']>('about');
-  const [availabilitySections, setAvailabilitySections] = useState<AvailabilitySection[]>([]);
   const [loadingAvailability, setLoadingAvailability] = useState(true);
-  const [currentMonthIndex, setCurrentMonthIndex] = useState(0);
+  const [currentMonth, setCurrentMonth] = useState(new Date().getMonth());
+  const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
+  const [availableSlotsByDate, setAvailableSlotsByDate] = useState<Record<string, TimeSlot[]>>({});
+  const [slotPickerVisible, setSlotPickerVisible] = useState(false);
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [bookingError, setBookingError] = useState<string | null>(null);
+  const [bookingSuccess, setBookingSuccess] = useState<string | null>(null);
+  const [bookingLoading, setBookingLoading] = useState(false);
+  const [clientDocId, setClientDocId] = useState<string | null>(null);
+  const [clientName, setClientName] = useState<string>('');
+  const [selectedServiceIndex, setSelectedServiceIndex] = useState<number | null>(null);
+  const [bookedSlotsByDate, setBookedSlotsByDate] = useState<Record<string, TimeSlot[]>>({});
+  const [pendingSlotsByDate, setPendingSlotsByDate] = useState<Record<string, TimeSlot[]>>({});
 
   const statsCards = useMemo(
     () => [
@@ -87,21 +144,86 @@ const ProviderProfileModal = ({ provider, onClose, onContact }: ProviderProfileM
   );
 
   useEffect(() => {
+    const fetchClientProfile = async () => {
+      const user = auth.currentUser;
+      if (!user) {
+        return;
+      }
+      try {
+        const contactsRef = collection(db, 'contacts');
+        const clientSnapshot = await getDocs(
+          query(contactsRef, where('userId', '==', user.uid), where('type', '==', 'client')),
+        );
+        if (clientSnapshot.empty) {
+          return;
+        }
+        const clientDoc = clientSnapshot.docs[0];
+        const clientData = clientDoc.data();
+        setClientDocId(clientDoc.id);
+        const fallbackName = (
+          clientData.displayName ??
+          [clientData.firstName, clientData.lastName].filter(Boolean).join(' ')
+        ).trim();
+        setClientName(fallbackName);
+      } catch (error) {
+        console.error(error);
+      }
+    };
+
+    fetchClientProfile();
+  }, []);
+
+  useEffect(() => {
     const fetchAvailability = async () => {
       setLoadingAvailability(true);
       try {
         const docRef = doc(db, 'contacts', provider.id);
         const snapshot = await getDoc(docRef);
         if (!snapshot.exists()) {
-          setAvailabilitySections([]);
+          setAvailableSlotsByDate({});
+          setBookedSlotsByDate({});
           return;
         }
         const data = snapshot.data();
         const availabilityData = data.availability ?? {};
-        const weeklyData: WeeklySchedule = {
-          ...defaultWeeklySchedule,
-          ...(availabilityData.weekly ?? {}),
-        };
+        const weeklyRaw = availabilityData.weekly ?? {};
+        const weeklyData = jsDayToKey.reduce((acc, key) => {
+          const persisted = weeklyRaw[key] ?? {};
+          const persistedSlots = Array.isArray(persisted.slots)
+            ? persisted.slots
+                .map((slot: any) =>
+                  slot &&
+                  typeof slot.start === 'string' &&
+                  slot.start &&
+                  typeof slot.end === 'string' &&
+                  slot.end
+                    ? { start: slot.start, end: slot.end }
+                    : null,
+                )
+                .filter((slot: any): slot is TimeSlot => Boolean(slot))
+            : [];
+          if (persistedSlots.length === 0) {
+            const legacyStart =
+              typeof persisted.start === 'string' && persisted.start ? persisted.start : null;
+            const legacyEnd = typeof persisted.end === 'string' && persisted.end ? persisted.end : null;
+            if (legacyStart && legacyEnd) {
+              persistedSlots.push({ start: legacyStart, end: legacyEnd });
+            }
+          }
+          const hasSlots = persistedSlots.length > 0;
+          const isActive =
+            typeof persisted.active === 'boolean' ? persisted.active : hasSlots;
+          acc[key] = {
+            active: isActive,
+            slots:
+              persistedSlots.length > 0
+                ? persistedSlots
+                : isActive
+                ? [{ start: '09:00', end: '18:00' }]
+                : [],
+          };
+          return acc;
+        }, {} as WeeklySchedule);
 
         const blockedRangesRaw = Array.isArray(availabilityData.blockedRanges)
           ? availabilityData.blockedRanges
@@ -124,38 +246,75 @@ const ProviderProfileModal = ({ provider, onClose, onContact }: ProviderProfileM
                 .map((date: any) => ({ start: date, end: date }))
             : [];
 
-        const sectionsMap = new Map<string, AvailabilitySection>();
+        const currentUserId = auth.currentUser?.uid ?? null;
+        const bookingsSnapshot = await getDocs(
+          query(collection(db, 'bookingRequests'), where('providerId', '==', provider.id)),
+        );
+        const blockingStatuses = ['confirmed', 'accepted', 'approved', 'validated'];
+        const reservedByDate: Record<string, TimeSlot[]> = {};
+        const pendingByUser: Record<string, TimeSlot[]> = {};
+        bookingsSnapshot.docs.forEach((docSnap) => {
+          const booking = docSnap.data();
+          if (!booking || typeof booking.date !== 'string') {
+            return;
+          }
+          const status = typeof booking.status === 'string' ? booking.status.toLowerCase() : 'pending';
+          if (['cancelled', 'rejected'].includes(status)) {
+            return;
+          }
+          const slot = booking.slot;
+          if (
+            !slot ||
+            typeof slot.start !== 'string' ||
+            !slot.start ||
+            typeof slot.end !== 'string' ||
+            !slot.end
+          ) {
+            return;
+          }
+          if (blockingStatuses.includes(status)) {
+            if (!reservedByDate[booking.date]) {
+              reservedByDate[booking.date] = [];
+            }
+            reservedByDate[booking.date].push({ start: slot.start, end: slot.end });
+          } else if (status === 'pending' && booking.clientUserId === currentUserId) {
+            if (!pendingByUser[booking.date]) {
+              pendingByUser[booking.date] = [];
+            }
+            pendingByUser[booking.date].push({ start: slot.start, end: slot.end });
+          }
+        });
+
+        const availabilityMap: Record<string, TimeSlot[]> = {};
         const today = new Date();
+        today.setHours(0, 0, 0, 0);
         for (let offset = 0; offset < 365; offset += 1) {
           const date = new Date(today);
-          date.setHours(0, 0, 0, 0);
           date.setDate(today.getDate() + offset);
-          const iso = date.toISOString().split('T')[0];
+          const iso = formatISODateFromDate(date);
           const isBlocked = blockedRanges.some((range: any) => iso >= range.start && iso <= range.end);
           const dayKey = jsDayToKey[date.getDay()];
           const schedule = weeklyData[dayKey];
-          const isActive = schedule?.active && schedule.start && schedule.end;
-          if (isBlocked || !isActive) {
+          if (!schedule?.active || schedule.slots.length === 0 || isBlocked) {
             continue;
           }
-          const monthLabel = date.toLocaleDateString('fr-FR', {
-            month: 'long',
-            year: 'numeric',
-          });
-          if (!sectionsMap.has(monthLabel)) {
-            sectionsMap.set(monthLabel, { label: monthLabel, slots: [] });
-          }
-          sectionsMap.get(monthLabel)?.slots.push({
-            date,
-            status: 'available',
-          });
+          availabilityMap[iso] = schedule.slots.map((slot) => ({ ...slot }));
         }
-        const sections = Array.from(sectionsMap.values()).filter((section) => section.slots.length > 0);
-        setAvailabilitySections(sections);
-        setCurrentMonthIndex(0);
+        setAvailableSlotsByDate(availabilityMap);
+        setBookedSlotsByDate(reservedByDate);
+        setPendingSlotsByDate(pendingByUser);
+        const firstKey = Object.keys(availabilityMap).sort()[0];
+        if (firstKey) {
+          const [year, month, day] = firstKey.split('-').map((value) => Number(value));
+          if (year && month && day) {
+            setCurrentMonth(month - 1);
+            setCurrentYear(year);
+          }
+        }
       } catch (error) {
         console.error(error);
-        setAvailabilitySections([]);
+        setAvailableSlotsByDate({});
+        setBookedSlotsByDate({});
       } finally {
         setLoadingAvailability(false);
       }
@@ -164,10 +323,210 @@ const ProviderProfileModal = ({ provider, onClose, onContact }: ProviderProfileM
     fetchAvailability();
   }, [provider.id]);
 
+  const calendarStart = useMemo(() => {
+    const start = new Date();
+    start.setDate(1);
+    start.setHours(0, 0, 0, 0);
+    return start;
+  }, []);
+
+  const calendarEnd = useMemo(() => {
+    const end = new Date(calendarStart);
+    end.setMonth(end.getMonth() + 11);
+    return end;
+  }, [calendarStart]);
+
+  const availableDaysForMonth = useMemo<DayAvailability[]>(() => {
+    return Object.entries(availableSlotsByDate)
+      .map(([iso, slots]) => {
+        const [year, month, day] = iso.split('-').map((value) => Number(value));
+        const date = new Date(year, (month ?? 1) - 1, day ?? 1);
+        date.setHours(0, 0, 0, 0);
+        return { iso, date, slots };
+      })
+      .filter(
+        (entry) => entry.date.getFullYear() === currentYear && entry.date.getMonth() === currentMonth,
+      )
+      .sort((a, b) => a.date.getTime() - b.date.getTime());
+  }, [availableSlotsByDate, currentMonth, currentYear]);
+
+  const selectedDateSlots = useMemo(
+    () => (selectedDate ? availableSlotsByDate[selectedDate] ?? [] : []),
+    [selectedDate, availableSlotsByDate],
+  );
+
+  const primaryService = useMemo(() => {
+    if (!provider.services.length) {
+      return undefined;
+    }
+    const pricedServices = provider.services.filter(
+      (service) => typeof service.priceFrom === 'number' && !Number.isNaN(service.priceFrom),
+    );
+    if (pricedServices.length === 0) {
+      return provider.services[0];
+    }
+    return pricedServices.reduce((best, current) => {
+      if (
+        typeof best.priceFrom === 'number' &&
+        typeof current.priceFrom === 'number' &&
+        current.priceFrom < best.priceFrom
+      ) {
+        return current;
+      }
+      if (typeof best.priceFrom !== 'number') {
+        return current;
+      }
+      return best;
+    }, pricedServices[0]);
+  }, [provider.services]);
+
+  const servicePriceSummary = useMemo(() => {
+    if (!provider.services.length) {
+      return 'Tarifs sur devis';
+    }
+    if (!primaryService || typeof primaryService.priceFrom !== 'number') {
+      return 'Tarifs variables selon le service';
+    }
+    const priceLabel = formatServicePrice(primaryService.priceFrom);
+    const durationLabel = formatServiceDuration(primaryService.durationHours);
+    return durationLabel ? `${priceLabel} • ${durationLabel}` : priceLabel;
+  }, [primaryService, provider.services]);
+
+  const selectedService = useMemo(
+    () => (selectedServiceIndex !== null ? provider.services[selectedServiceIndex] : null),
+    [provider.services, selectedServiceIndex],
+  );
+
+  const isSlotPendingForUser = useCallback(
+    (date: string | null, slot: TimeSlot) => {
+      if (!date) return false;
+      return (pendingSlotsByDate[date] ?? []).some(
+        (pending) => pending.start === slot.start && pending.end === slot.end,
+      );
+    },
+    [pendingSlotsByDate],
+  );
+
+  const eligibleSlots = useMemo(() => {
+    if (!selectedService?.durationHours || selectedService.durationHours <= 0) {
+      return [];
+    }
+    const reservations = selectedDate ? bookedSlotsByDate[selectedDate] ?? [] : [];
+    const durationMinutes = selectedService.durationHours * 60;
+    return generateBookableSlots(selectedDateSlots, durationMinutes, reservations);
+  }, [bookedSlotsByDate, selectedDate, selectedDateSlots, selectedService]);
+
+  const openSlotPicker = (iso: string) => {
+    setSelectedDate(iso);
+    setBookingError(null);
+    setBookingSuccess(null);
+    setSelectedServiceIndex(null);
+    setSlotPickerVisible(true);
+  };
+
+  const closeSlotPicker = () => {
+    setSlotPickerVisible(false);
+    setSelectedDate(null);
+    setBookingError(null);
+    setBookingSuccess(null);
+    setSelectedServiceIndex(null);
+  };
+
+  const handleSlotBooking = async (slot: TimeSlot) => {
+    const user = auth.currentUser;
+    if (!selectedDate) {
+      setBookingError('Sélectionnez une date valide.');
+      return;
+    }
+    const dateToBook = selectedDate;
+    if (!selectedService) {
+      setBookingError('Sélectionnez un service pour continuer.');
+      return;
+    }
+    if (isSlotPendingForUser(dateToBook, slot)) {
+      setBookingError('Vous avez déjà une demande en attente pour ce créneau.');
+      return;
+    }
+    if (!user) {
+      setBookingError('Connectez-vous pour envoyer une demande.');
+      return;
+    }
+    if (!clientDocId) {
+      setBookingError('Complétez votre profil client avant de réserver.');
+      return;
+    }
+    setBookingLoading(true);
+    setBookingError(null);
+    setBookingSuccess(null);
+    try {
+      await addDoc(collection(db, 'bookingRequests'), {
+        providerId: provider.id,
+        providerName: provider.name,
+        clientContactId: clientDocId,
+        clientUserId: user.uid,
+        clientName: clientName || user.email,
+        date: dateToBook,
+        slot,
+        service: {
+          name: selectedService.name,
+          durationHours: selectedService.durationHours ?? null,
+          priceFrom: selectedService.priceFrom ?? null,
+        },
+        status: 'pending',
+        createdAt: serverTimestamp(),
+      });
+      setBookingSuccess(
+        'Votre demande a bien été envoyée au prestataire et est en attente de validation par celui-ci.',
+      );
+      setPendingSlotsByDate((prev) => {
+        const current = prev[dateToBook] ?? [];
+        return {
+          ...prev,
+          [dateToBook]: [...current, slot],
+        };
+      });
+      Alert.alert(
+        'Demande envoyée',
+        'Votre demande a bien été envoyée au prestataire et est en attente de validation par celui-ci.',
+      );
+      closeSlotPicker();
+    } catch (error) {
+      console.error(error);
+      setBookingError("Impossible d'envoyer la demande. Veuillez réessayer.");
+    } finally {
+      setBookingLoading(false);
+    }
+  };
+
+  const goToPreviousMonth = () => {
+    const prevMonth = currentMonth === 0 ? 11 : currentMonth - 1;
+    const prevYear = currentMonth === 0 ? currentYear - 1 : currentYear;
+    if (
+      prevYear < calendarStart.getFullYear() ||
+      (prevYear === calendarStart.getFullYear() && prevMonth < calendarStart.getMonth())
+    ) {
+      return;
+    }
+    setCurrentMonth(prevMonth);
+    setCurrentYear(prevYear);
+  };
+
+  const goToNextMonth = () => {
+    const nextMonth = currentMonth === 11 ? 0 : currentMonth + 1;
+    const nextYear = currentMonth === 11 ? currentYear + 1 : currentYear;
+    if (
+      nextYear > calendarEnd.getFullYear() ||
+      (nextYear === calendarEnd.getFullYear() && nextMonth > calendarEnd.getMonth())
+    ) {
+      return;
+    }
+    setCurrentMonth(nextMonth);
+    setCurrentYear(nextYear);
+  };
+
   const renderTabContent = () => {
     switch (activeTab) {
       case 'availability':
-        const currentSection = availabilitySections[currentMonthIndex];
         return (
           <LinearGradient
             colors={[Colors.light.lightBlue, Colors.light.lila]}
@@ -175,14 +534,14 @@ const ProviderProfileModal = ({ provider, onClose, onContact }: ProviderProfileM
             end={{ x: 1, y: 1 }}
             style={styles.availabilityCard}
           >
-            <Text style={styles.sectionTitle}>Disponibilités à venir</Text>
+            <Text style={styles.sectionTitle}>Disponibilités sur 12 mois</Text>
             {loadingAvailability ? (
               <View style={styles.availabilityLoader}>
                 <ActivityIndicator color={Colors.light.purple} />
               </View>
-            ) : availabilitySections.length === 0 ? (
+            ) : Object.keys(availableSlotsByDate).length === 0 ? (
               <Text style={styles.emptyAvailabilityText}>
-                Ce prestataire n&apos;a pas encore publié de disponibilités.
+                Ce prestataire n&apos;a pas encore publié de créneaux disponibles.
               </Text>
             ) : (
               <>
@@ -190,71 +549,74 @@ const ProviderProfileModal = ({ provider, onClose, onContact }: ProviderProfileM
                   <TouchableOpacity
                     style={[
                       styles.monthNavButton,
-                      currentMonthIndex === 0 && styles.monthNavButtonDisabled,
+                      currentYear === calendarStart.getFullYear() &&
+                        currentMonth === calendarStart.getMonth() &&
+                        styles.monthNavButtonDisabled,
                     ]}
-                    onPress={() => setCurrentMonthIndex((prev) => Math.max(0, prev - 1))}
-                    disabled={currentMonthIndex === 0}
+                    onPress={goToPreviousMonth}
+                    disabled={
+                      currentYear === calendarStart.getFullYear() &&
+                      currentMonth === calendarStart.getMonth()
+                    }
                   >
                     <Ionicons name="chevron-back" size={18} color="#1F1F33" />
                   </TouchableOpacity>
                   <Text style={styles.availabilityMonth}>
-                    {currentSection?.label ?? availabilitySections[0].label}
+                    {monthNames[currentMonth]} {currentYear}
                   </Text>
                   <TouchableOpacity
                     style={[
                       styles.monthNavButton,
-                      currentMonthIndex === availabilitySections.length - 1 && styles.monthNavButtonDisabled,
+                      currentYear === calendarEnd.getFullYear() &&
+                        currentMonth === calendarEnd.getMonth() &&
+                        styles.monthNavButtonDisabled,
                     ]}
-                    onPress={() =>
-                      setCurrentMonthIndex((prev) => Math.min(availabilitySections.length - 1, prev + 1))
+                    onPress={goToNextMonth}
+                    disabled={
+                      currentYear === calendarEnd.getFullYear() &&
+                      currentMonth === calendarEnd.getMonth()
                     }
-                    disabled={currentMonthIndex === availabilitySections.length - 1}
                   >
                     <Ionicons name="chevron-forward" size={18} color="#1F1F33" />
                   </TouchableOpacity>
                 </View>
 
-                <ScrollView
-                  style={styles.availabilityList}
-                  contentContainerStyle={styles.availabilityContent}
-                  showsVerticalScrollIndicator={false}
-                >
-                  {(currentSection?.slots ?? []).map((slot) => (
-                    <View key={slot.date.toISOString()} style={styles.availabilityItem}>
-                      <View style={styles.availabilityDate}>
-                        <Ionicons
-                          name="calendar-outline"
-                          size={16}
-                          color={slot.status === 'available' ? '#1D9A5F' : '#D6455F'}
-                        />
-                        <Text style={styles.availabilityLabel}>
-                          {slot.date.toLocaleDateString('fr-FR', {
-                            weekday: 'long',
-                            day: 'numeric',
-                            month: 'long',
-                          })}
-                        </Text>
-                      </View>
-                      <View
-                        style={[
-                          styles.statusPill,
-                          slot.status === 'available' ? styles.statusAvailable : styles.statusReserved,
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.statusPillText,
-                            slot.status === 'available'
-                              ? styles.statusAvailableText
-                              : styles.statusReservedText,
-                          ]}
+                {availableDaysForMonth.length === 0 ? (
+                  <Text style={styles.emptyAvailabilityText}>
+                    Aucun créneau disponible ce mois-ci.
+                  </Text>
+                ) : (
+                  <View style={styles.daysListContainer}>
+                    <ScrollView nestedScrollEnabled showsVerticalScrollIndicator>
+                      {availableDaysForMonth.map((day) => (
+                        <TouchableOpacity
+                          key={day.iso}
+                          style={styles.dayCard}
+                          onPress={() => openSlotPicker(day.iso)}
                         >
-                          {slot.status === 'available' ? 'Disponible' : 'Réservé'}
-                        </Text>
-                      </View>
-                    </View>
-                  ))}
-                </ScrollView>
+                          <View style={styles.dayCardHeader}>
+                            <Ionicons name="calendar-outline" size={16} color="#1D9A5F" />
+                            <Text style={styles.dayCardWeekday}>
+                              {day.date.toLocaleDateString('fr-FR', { weekday: 'long' })}
+                            </Text>
+                          </View>
+                          <Text style={styles.dayCardDate}>
+                            {day.date.toLocaleDateString('fr-FR', {
+                              day: 'numeric',
+                              month: 'long',
+                            })}
+                          </Text>
+                          <Text style={styles.dayCardSlots}>
+                            {day.slots.length} créneau{day.slots.length > 1 ? 'x' : ''}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  </View>
+                )}
+                <Text style={styles.availabilityHint}>
+                  Touchez une date pour réserver un créneau précis.
+                </Text>
               </>
             )}
           </LinearGradient>
@@ -291,13 +653,26 @@ const ProviderProfileModal = ({ provider, onClose, onContact }: ProviderProfileM
 
             <View style={styles.infoCard}>
               <Text style={styles.sectionTitle}>Services proposés</Text>
-              <View style={styles.pillList}>
-                {provider.services.map((service, index) => (
-                  <View key={`${provider.id}-service-${index}`} style={styles.servicePill}>
-                    <Text style={styles.serviceText}>{service}</Text>
-                  </View>
-                ))}
-              </View>
+              {provider.services.length === 0 ? (
+                <Text style={styles.emptyServiceText}>
+                  Ce prestataire ajoute ses services bientôt.
+                </Text>
+              ) : (
+                <View style={styles.serviceList}>
+                  {provider.services.map((service, index) => {
+                    const durationLabel = formatServiceDuration(service.durationHours);
+                    return (
+                      <View key={`${provider.id}-service-${index}`} style={styles.serviceCard}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.serviceName}>{service.name}</Text>
+                          {durationLabel ? <Text style={styles.serviceDuration}>{durationLabel}</Text> : null}
+                        </View>
+                        <Text style={styles.servicePrice}>{formatServicePrice(service.priceFrom)}</Text>
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
             </View>
 
             <View style={styles.infoCard}>
@@ -361,13 +736,25 @@ const ProviderProfileModal = ({ provider, onClose, onContact }: ProviderProfileM
           </View>
           <View style={styles.infoRow}>
             <Ionicons name="cash-outline" size={18} color="#6B6B7B" />
-            <Text style={styles.infoText}>{provider.priceRange}</Text>
+            <Text style={styles.infoText}>{servicePriceSummary}</Text>
           </View>
           <View style={styles.infoRow}>
             <Ionicons name="time-outline" size={18} color="#6B6B7B" />
             <Text style={styles.infoText}>{provider.responseTime}</Text>
           </View>
         </View>
+
+        <TouchableOpacity style={styles.contactButton} onPress={() => onContact(provider)}>
+          <LinearGradient
+            colors={[Colors.light.pink, Colors.light.purple]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.contactButtonGradient}
+          >
+            <Ionicons name="chatbubble-ellipses" size={18} color="#FFFFFF" />
+            <Text style={styles.contactButtonText}>Contacter le prestataire</Text>
+          </LinearGradient>
+        </TouchableOpacity>
 
         <View style={styles.tabsRow}>
           {tabs.map((tab) => {
@@ -385,11 +772,113 @@ const ProviderProfileModal = ({ provider, onClose, onContact }: ProviderProfileM
         </View>
 
         {renderTabContent()}
-
-        <Pressable style={styles.ctaButton} onPress={() => onContact(provider)}>
-          <Text style={styles.ctaText}>Demander un rendez-vous</Text>
-        </Pressable>
       </ScrollView>
+
+      <Modal
+        visible={slotPickerVisible}
+        animationType="fade"
+        transparent
+        onRequestClose={closeSlotPicker}
+      >
+        <View style={styles.slotModalOverlay}>
+          <View style={styles.slotModalContent}>
+            <View style={styles.slotModalHeader}>
+              <Text style={styles.slotModalTitle}>Sélectionnez un créneau</Text>
+              <Pressable onPress={closeSlotPicker} style={styles.modalCloseButton}>
+                <Ionicons name="close" size={20} color="#1F1F33" />
+              </Pressable>
+            </View>
+            <Text style={styles.slotModalDate}>{formatDisplayDate(selectedDate)}</Text>
+            {bookingError ? <Text style={styles.slotModalError}>{bookingError}</Text> : null}
+            {bookingSuccess ? <Text style={styles.slotModalSuccess}>{bookingSuccess}</Text> : null}
+            <ScrollView
+              style={styles.slotList}
+              contentContainerStyle={styles.slotListContent}
+              showsVerticalScrollIndicator={false}
+            >
+              <View style={styles.slotModalSection}>
+                <Text style={styles.slotModalLabel}>1. Choisissez un service</Text>
+                {provider.services.length === 0 ? (
+                  <Text style={styles.slotModalEmpty}>Ce prestataire n&apos;a pas encore défini ses services.</Text>
+                ) : (
+                  <View style={styles.slotServiceList}>
+                    {provider.services.map((service, index) => {
+                      const durationLabel = formatServiceDuration(service.durationHours);
+                      const details = [durationLabel, formatServicePrice(service.priceFrom)]
+                        .filter(Boolean)
+                        .join(' • ');
+                      const isSelected = selectedServiceIndex === index;
+                      return (
+                        <TouchableOpacity
+                          key={`${service.name}-${index}`}
+                          style={[styles.serviceOption, isSelected && styles.serviceOptionSelected]}
+                          onPress={() => setSelectedServiceIndex(index)}
+                          disabled={bookingLoading}
+                        >
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.serviceOptionName}>{service.name}</Text>
+                            <Text style={styles.serviceOptionMeta}>
+                              {details || 'Tarif communiqué après contact'}
+                            </Text>
+                          </View>
+                          {isSelected ? (
+                            <Ionicons name="checkmark-circle" size={20} color={Colors.light.purple} />
+                          ) : null}
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                )}
+              </View>
+
+              <View style={styles.slotModalSection}>
+                <Text style={styles.slotModalLabel}>2. Choisissez un horaire</Text>
+                {!selectedService ? (
+                  <Text style={styles.slotModalInfo}>
+                    Sélectionnez un service pour afficher les heures disponibles.
+                  </Text>
+                ) : eligibleSlots.length === 0 ? (
+                  <Text style={styles.slotModalEmpty}>
+                    Aucun créneau suffisant pour ce service sur cette date.
+                  </Text>
+                ) : null}
+
+                {selectedService
+                  ? eligibleSlots.map((slot) => {
+                      const pending = isSlotPendingForUser(selectedDate, slot);
+                      return (
+                        <TouchableOpacity
+                          key={`${slot.start}-${slot.end}`}
+                          style={[styles.slotButton, pending && styles.pendingSlotButton]}
+                          onPress={() => handleSlotBooking(slot)}
+                          disabled={bookingLoading || pending}
+                        >
+                          <Ionicons
+                            name={pending ? 'time' : 'time-outline'}
+                            size={18}
+                            color={pending ? '#6B7280' : '#FFFFFF'}
+                          />
+                          <Text
+                            style={[styles.slotButtonLabel, pending && styles.pendingSlotLabel]}
+                          >
+                            {slot.start} - {slot.end}
+                          </Text>
+                          {pending ? (
+                            <View style={styles.pendingBadge}>
+                              <Ionicons name="timer-outline" size={12} color="#6B7280" />
+                              <Text style={styles.pendingBadgeText}>En attente</Text>
+                            </View>
+                          ) : null}
+                        </TouchableOpacity>
+                      );
+                    })
+                  : null}
+              </View>
+            </ScrollView>
+            <Text style={styles.slotModalHint}>Les horaires sont affichés en heure locale.</Text>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -505,6 +994,22 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#3F3F46',
   },
+  contactButton: {
+    marginHorizontal: 20,
+    marginBottom: 20,
+  },
+  contactButtonGradient: {
+    borderRadius: 18,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  contactButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+  },
   tabsRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -574,87 +1079,90 @@ const styles = StyleSheet.create({
     color: '#6B7280',
     fontStyle: 'italic',
   },
-  availabilitySection: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    padding: 12,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 6 },
-  },
   availabilityMonth: {
     fontSize: 15,
     fontWeight: '700',
     color: '#1F1F33',
     marginBottom: 6,
   },
-  availabilityList: {
-    marginTop: 10,
-    maxHeight: 10 * 64,
+  daysListContainer: {
+    marginTop: 8,
+    maxHeight: 10 * 90,
   },
-  availabilityContent: {
-    gap: 10,
-  },
-  availabilityItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderRadius: 16,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
+  dayCard: {
     backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    padding: 14,
+    marginBottom: 10,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
   },
-  availabilityDate: {
+  dayCardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
   },
-  availabilityLabel: {
+  dayCardWeekday: {
+    fontSize: 14,
     fontWeight: '600',
     color: '#1F1F33',
     textTransform: 'capitalize',
   },
-  statusPill: {
-    borderRadius: 12,
-    paddingVertical: 4,
-    paddingHorizontal: 12,
+  dayCardDate: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#4C1D95',
+    marginTop: 6,
+    textTransform: 'capitalize',
   },
-  statusPillText: {
-    fontWeight: '600',
+  dayCardSlots: {
+    marginTop: 4,
+    color: '#6B7280',
+    fontSize: 13,
   },
-  statusAvailable: {
-    backgroundColor: '#D8FCE3',
-  },
-  statusAvailableText: {
-    color: '#1D9A5F',
-  },
-  statusReserved: {
-    backgroundColor: '#FFD9D9',
-  },
-  statusReservedText: {
-    color: '#D6455F',
+  availabilityHint: {
+    fontSize: 12,
+    color: '#374151',
+    opacity: 0.9,
   },
   descriptionText: {
     fontSize: 14,
     color: '#4B5563',
     lineHeight: 20,
   },
-  pillList: {
+  serviceList: {
+    marginTop: 12,
+    gap: 12,
+  },
+  serviceCard: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-  },
-  servicePill: {
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 999,
-    backgroundColor: '#EEF2FF',
+    paddingVertical: 12,
+    borderRadius: 18,
+    backgroundColor: '#F1F0FF',
   },
-  serviceText: {
-    fontSize: 13,
+  serviceName: {
     fontWeight: '600',
-    color: '#4338CA',
+    color: '#1F1F33',
+  },
+  serviceDuration: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginTop: 2,
+    textTransform: 'capitalize',
+  },
+  servicePrice: {
+    fontWeight: '700',
+    color: '#4C1D95',
+    marginLeft: 12,
+  },
+  emptyServiceText: {
+    color: '#6B7280',
+    fontStyle: 'italic',
   },
   galleryRow: {
     flexDirection: 'row',
@@ -705,23 +1213,132 @@ const styles = StyleSheet.create({
     color: '#4B5563',
     lineHeight: 18,
   },
-  ctaButton: {
-    marginHorizontal: 20,
-    marginTop: 8,
-    backgroundColor: '#4B6BFF',
-    borderRadius: 18,
-    paddingVertical: 14,
+  slotModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  slotModalContent: {
+    width: '100%',
+    maxWidth: 420,
+    borderRadius: 24,
+    backgroundColor: '#FFFFFF',
+    padding: 20,
+    gap: 12,
+  },
+  slotModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  slotModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1F1F33',
+  },
+  modalCloseButton: {
+    padding: 6,
+    borderRadius: 16,
+    backgroundColor: '#F1F1F5',
+  },
+  slotModalDate: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#4C1D95',
+    textTransform: 'capitalize',
+  },
+  slotModalError: {
+    color: '#DC2626',
+    fontSize: 13,
+  },
+  slotModalSuccess: {
+    color: '#0F7A3D',
+    fontSize: 13,
+  },
+  slotList: {
+    maxHeight: 260,
+  },
+  slotListContent: {
+    gap: 10,
+  },
+  slotModalSection: {
+    gap: 8,
+  },
+  slotModalLabel: {
+    fontWeight: '700',
+    color: '#1F1F33',
+  },
+  slotServiceList: {
+    gap: 10,
+  },
+  serviceOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E0E2EC',
+    backgroundColor: '#FFFFFF',
+    gap: 12,
+  },
+  serviceOptionSelected: {
+    borderColor: Colors.light.purple,
+    backgroundColor: '#F3EDFF',
+  },
+  serviceOptionName: {
+    fontWeight: '600',
+    color: '#1F1F33',
+  },
+  serviceOptionMeta: {
+    marginTop: 2,
+    fontSize: 12,
+    color: '#6B7280',
+  },
+  slotModalInfo: {
+    color: '#6B7280',
+    fontStyle: 'italic',
+  },
+  slotModalEmpty: {
+    textAlign: 'center',
+    color: '#6B7280',
+    fontStyle: 'italic',
+  },
+  slotButton: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#4B6BFF',
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 8 },
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: 16,
+    backgroundColor: '#7C3AED',
   },
-  ctaText: {
+  slotButtonLabel: {
     color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '600',
+  },
+  pendingSlotButton: {
+    backgroundColor: '#E5E7EB',
+  },
+  pendingSlotLabel: {
+    color: '#6B7280',
+  },
+  pendingBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginLeft: 'auto',
+  },
+  pendingBadgeText: {
+    color: '#6B7280',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  slotModalHint: {
+    textAlign: 'center',
+    fontSize: 12,
+    color: '#6B7280',
   },
 });
 

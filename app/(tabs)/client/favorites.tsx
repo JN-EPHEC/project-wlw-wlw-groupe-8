@@ -14,26 +14,50 @@ const FavoriteCard = ({
   onRemove: () => void;
 }) => {
   return (
-    <View style={styles.card}>
-      <Image source={{ uri: provider.image }} style={styles.cardImage} />
-
-      <View style={styles.cardBody}>
-        <Text style={styles.cardName}>{provider.name}</Text>
-        <Text style={styles.cardMeta}>
-          {provider.category} • {provider.city}
-        </Text>
-        <View style={styles.cardFooter}>
-          <View style={styles.ratingContainer}>
-            <Ionicons name="star" size={16} color="#FFC107" />
-            <Text style={styles.ratingText}>{provider.rating}</Text>
+    <View style={styles.cardWrapper}>
+      <LinearGradient
+        colors={['#FFFFFF', '#F9F6FF']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.card}
+      >
+        <View style={styles.cardHeaderRow}>
+          <View style={styles.avatarRow}>
+            <View style={styles.avatarShadow}>
+              <Image source={{ uri: provider.image }} style={styles.cardImage} />
+            </View>
+            <View>
+              <Text style={styles.cardName}>{provider.name}</Text>
+              <Text style={styles.cardMeta}>{provider.category}</Text>
+            </View>
           </View>
-          <Text style={styles.cardPrice}>{provider.price}</Text>
+          <TouchableOpacity style={styles.removeButton} onPress={onRemove}>
+            <Ionicons name="heart" size={20} color="#FF5C8D" />
+          </TouchableOpacity>
         </View>
-      </View>
+        <View style={styles.chipRow}>
+          <View style={styles.infoChip}>
+            <Ionicons name="pricetag-outline" size={14} color="#9F6BFF" />
+            <Text style={styles.infoChipText}>{provider.price}</Text>
+          </View>
+          <View style={styles.infoChip}>
+            <Ionicons name="star" size={14} color="#FFC107" />
+            <Text style={styles.infoChipText}>{provider.rating}</Text>
+          </View>
+        </View>
 
-      <TouchableOpacity style={styles.removeButton} onPress={onRemove}>
-        <Ionicons name="heart" size={22} color="#FF5C8D" />
-      </TouchableOpacity>
+        <View style={styles.cardFooter}>
+          <View style={styles.footerItem}>
+            <Ionicons name="location-outline" size={16} color="#73738C" />
+            <Text style={styles.footerText}>{provider.city}</Text>
+          </View>
+          <View style={styles.footerDivider} />
+          <View style={styles.footerItem}>
+            <Ionicons name="time-outline" size={16} color="#73738C" />
+            <Text style={styles.footerText}>{provider.responseTime}</Text>
+          </View>
+        </View>
+      </LinearGradient>
     </View>
   );
 };
@@ -67,7 +91,7 @@ const FavoritesScreen = () => {
 
         {favorites.length === 0 ? (
           <View style={styles.emptyState}>
-            <Ionicons name="heart-outline" size={40} color="#C0C0C8" />
+            <Ionicons name="heart-outline" size={46} color="#D5C5FF" />
             <Text style={styles.emptyTitle}>Vos favoris sont vides</Text>
             <Text style={styles.emptySubtitle}>
               Appuyez sur le coeur d&apos;un prestataire pour le retrouver ici.
@@ -99,81 +123,124 @@ const styles = StyleSheet.create({
     paddingTop: 16,
   },
   header: {
-    marginBottom: 20,
+    marginTop: 36,
+    marginBottom: 18,
+    alignItems: 'center',
+    paddingHorizontal: 4,
   },
   headerTitle: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: '#33244D',
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#1F1F33',
   },
   headerSubtitle: {
     marginTop: 4,
     fontSize: 14,
     color: '#6B6B7B',
+    textAlign: 'center',
   },
   listContent: {
     paddingBottom: 40,
+    paddingTop: 4,
+    paddingHorizontal: 16,
+  },
+  cardWrapper: {
+    marginBottom: 16,
   },
   card: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    padding: 12,
-    marginBottom: 12,
+    borderRadius: 24,
+    padding: 18,
     shadowColor: '#7E65B4',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.12,
-    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
     elevation: 4,
   },
-  cardImage: {
-    width: 72,
-    height: 72,
-    borderRadius: 14,
-    marginRight: 12,
+  cardHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
-  cardBody: {
-    flex: 1,
+  avatarRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  avatarShadow: {
+    width: 70,
+    height: 70,
+    borderRadius: 18,
+    overflow: 'hidden',
+    shadowColor: '#C5B8FF',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  cardImage: {
+    width: '100%',
+    height: '100%',
   },
   cardName: {
-    fontSize: 17,
+    fontSize: 18,
     fontWeight: '700',
-    color: '#1E1644',
+    color: '#1F1538',
   },
   cardMeta: {
-    fontSize: 13,
+    fontSize: 14,
     color: '#7A7A8A',
     marginTop: 2,
+  },
+  removeButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#FFEAF1',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chipRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 14,
+  },
+  infoChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#F3F0FF',
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  infoChipText: {
+    fontSize: 13,
+    color: '#6B5AA5',
+    fontWeight: '600',
   },
   cardFooter: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 10,
+    marginTop: 16,
+    paddingTop: 14,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#E6DFFF',
+    gap: 16,
   },
-  ratingContainer: {
+  footerItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginRight: 10,
+    gap: 6,
+    flex: 1,
   },
-  ratingText: {
-    marginLeft: 4,
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#645582',
+  footerDivider: {
+    width: 1,
+    height: 20,
+    backgroundColor: '#E1DCFF',
   },
-  cardPrice: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#A24BFF',
-  },
-  removeButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FCE6EE',
+  footerText: {
+    color: '#5D5E77',
+    fontSize: 13,
   },
   emptyState: {
     flex: 1,

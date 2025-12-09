@@ -30,9 +30,11 @@ import ProviderChatScreen from '@/components/ProviderChatModal';
 
  type ConversationSummary = {
   id: string;
-  provider: Provider;
+  clientName: string;
+  clientAvatar?: string;
   lastMessage: string;
   lastMessageAt: Date | null;
+  providerView: Provider;
 };
 
 const formatTimestamp = (value: Date | null) => {
@@ -66,59 +68,68 @@ const toProvider = (data: Record<string, any>): Provider => ({
   reviews: [],
 });
 
-export default function ClientMessagesScreen() {
-  const [contactId, setContactId] = useState<string | null>(null);
+export default function PrestataireMessagesScreen() {
+  const [providerContactId, setProviderContactId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
-  const [activeChat, setActiveChat] = useState<{ provider: Provider; conversationId?: string | null } | null>(null);
+  const [activeChat, setActiveChat] = useState<{
+    provider: Provider;
+    conversationId: string;
+    clientName: string;
+  } | null>(null);
   const [chatVisible, setChatVisible] = useState(false);
   const user = auth.currentUser;
 
   useEffect(() => {
-    const fetchProfile = async () => {
+    const bootstrap = async () => {
       if (!user) {
         setError('Veuillez vous reconnecter.');
         setLoading(false);
         return;
       }
       try {
-        const profileSnapshot = await getDocs(
+        const snapshot = await getDocs(
           query(
             collection(db, 'contacts'),
             where('userId', '==', user.uid),
-            where('type', '==', 'client'),
+            where('type', '==', 'prestataire'),
             limit(1),
           ),
         );
-        if (profileSnapshot.empty) {
-          setError('Impossible de récupérer votre profil client.');
+        if (snapshot.empty) {
+          setError('Impossible de récupérer votre profil prestataire.');
           setLoading(false);
           return;
         }
-        setContactId(profileSnapshot.docs[0].id);
+        setProviderContactId(snapshot.docs[0].id);
       } catch (err) {
         console.error(err);
-        setError('Impossible de récupérer votre profil client.');
+        setError('Impossible de récupérer votre profil prestataire.');
         setLoading(false);
       }
     };
-    fetchProfile();
+    bootstrap();
   }, [user]);
 
   useEffect(() => {
-    if (!contactId) return;
-    const conversationsRef = collection(db, 'conversations');
+    if (!providerContactId) return;
     const unsubscribe = onSnapshot(
-      query(conversationsRef, where('clientContactId', '==', contactId), orderBy('lastMessageAt', 'desc')),
+      query(
+        collection(db, 'conversations'),
+        where('providerId', '==', providerContactId),
+        orderBy('lastMessageAt', 'desc'),
+      ),
       (snapshot) => {
         const next = snapshot.docs.map((docSnap) => {
           const data = docSnap.data();
           return {
             id: docSnap.id,
-            provider: toProvider(data),
+            clientName: data.clientName ?? 'Client SpeedEvent',
+            clientAvatar: data.clientAvatar,
             lastMessage: data.lastMessage ?? 'Nouvelle conversation',
             lastMessageAt: data.lastMessageAt?.toDate?.() ?? null,
+            providerView: toProvider(data),
           } as ConversationSummary;
         });
         setConversations(next);
@@ -131,10 +142,10 @@ export default function ClientMessagesScreen() {
       },
     );
     return () => unsubscribe();
-  }, [contactId]);
+  }, [providerContactId]);
 
-  const handleOpenChat = useCallback((provider: Provider, conversationId?: string | null) => {
-    setActiveChat({ provider, conversationId });
+  const handleOpenChat = useCallback((provider: Provider, conversationId: string, clientName: string) => {
+    setActiveChat({ provider, conversationId, clientName });
     setChatVisible(true);
   }, []);
 
@@ -145,28 +156,29 @@ export default function ClientMessagesScreen() {
 
   const renderConversation = useCallback(({ item }: { item: ConversationSummary }) => {
     return (
-      <TouchableOpacity style={styles.card} onPress={() => handleOpenChat(item.provider, item.id)}>
-        <Image source={{ uri: item.provider.image || PLACEHOLDER_AVATAR_URI }} style={styles.avatar} />
+      <TouchableOpacity style={styles.card} onPress={() => handleOpenChat(item.providerView, item.id, item.clientName)}>
+        <Image source={{ uri: item.clientAvatar || PLACEHOLDER_AVATAR_URI }} style={styles.avatar} />
         <View style={styles.cardContent}>
           <View style={styles.cardHeader}>
-            <Text style={styles.providerName}>{item.provider.name}</Text>
+            <Text style={styles.providerName}>{item.clientName}</Text>
             <Text style={styles.timestamp}>{formatTimestamp(item.lastMessageAt)}</Text>
           </View>
-          <Text style={styles.lastMessage} numberOfLines={1}>
-            {item.lastMessage || 'Démarrez la conversation'}
-          </Text>
+          <Text style={styles.lastMessage}>{item.lastMessage}</Text>
         </View>
         <Ionicons name="chevron-forward" size={18} color="#CBD5F5" />
       </TouchableOpacity>
     );
   }, [handleOpenChat]);
 
-  const header = useMemo(() => (
-    <LinearGradient colors={[Colors.light.pink, Colors.light.purple]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.headerGradient}>
-      <Text style={styles.headerTitle}>Messages</Text>
-      <Text style={styles.headerSubtitle}>Continuez vos échanges avec vos prestataires favoris.</Text>
-    </LinearGradient>
-  ), []);
+  const header = useMemo(
+    () => (
+      <LinearGradient colors={[Colors.light.pink, Colors.light.purple]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.headerGradient}>
+        <Text style={styles.headerTitle}>Messagerie</Text>
+        <Text style={styles.headerSubtitle}>Répondez rapidement aux clients intéressés.</Text>
+      </LinearGradient>
+    ),
+    [],
+  );
 
   if (loading) {
     return (
@@ -191,16 +203,16 @@ export default function ClientMessagesScreen() {
       {conversations.length === 0 ? (
         <View style={styles.emptyCard}>
           <Ionicons name="chatbubbles-outline" size={32} color="#CBD5F5" />
-          <Text style={styles.emptyTitle}>Aucune conversation</Text>
-          <Text style={styles.emptySubtitle}>Contactez un prestataire pour commencer un échange.</Text>
+          <Text style={styles.emptyTitle}>Aucun message pour l’instant</Text>
+          <Text style={styles.emptySubtitle}>Lorsque des clients vous écrivent, la conversation apparaîtra ici.</Text>
         </View>
       ) : (
         <FlatList
           data={conversations}
           keyExtractor={(item) => item.id}
           renderItem={renderConversation}
-          contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.listContent}
         />
       )}
 
@@ -208,8 +220,10 @@ export default function ClientMessagesScreen() {
         {activeChat && (
           <ProviderChatScreen
             provider={activeChat.provider}
-            onClose={handleCloseChat}
             conversationId={activeChat.conversationId}
+            headerTitle={activeChat.clientName}
+            mode="provider"
+            onClose={handleCloseChat}
           />
         )}
       </Modal>
@@ -266,7 +280,7 @@ const styles = StyleSheet.create({
     color: '#1F1F33',
   },
   emptySubtitle: {
-    color: '#6B6B7B',
+    color: '#6B6E7F',
     textAlign: 'center',
   },
   listContent: {

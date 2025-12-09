@@ -25,7 +25,14 @@ export default function TabsLayout() {
         name="demandes"
         options={{
           title: "Demandes",
-          tabBarIcon: ({ color, size }) => <Ionicons name="heart" color={color} size={size} />,
+          tabBarIcon: ({ color, size }) => <Ionicons name="book" color={color} size={size} />,
+        }}
+      />
+      <Tabs.Screen
+        name="messages"
+        options={{
+          title: "Messages",
+          tabBarIcon: ({ color, size }) => <Ionicons name="chatbubbles" color={color} size={size} />,
         }}
       />
       <Tabs.Screen
