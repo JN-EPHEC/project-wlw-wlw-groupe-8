@@ -6,11 +6,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
   collection,
+  doc,
   getDocs,
   limit,
   onSnapshot,
   orderBy,
   query,
+  updateDoc,
   where,
 } from 'firebase/firestore';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -33,6 +35,7 @@ import ProviderChatScreen from '@/components/ProviderChatModal';
   provider: Provider;
   lastMessage: string;
   lastMessageAt: Date | null;
+  unread: boolean;
 };
 
 const formatTimestamp = (value: Date | null) => {
@@ -119,6 +122,7 @@ export default function ClientMessagesScreen() {
             provider: toProvider(data),
             lastMessage: data.lastMessage ?? 'Nouvelle conversation',
             lastMessageAt: data.lastMessageAt?.toDate?.() ?? null,
+            unread: Boolean(data.unreadByClient),
           } as ConversationSummary;
         });
         setConversations(next);
@@ -133,10 +137,25 @@ export default function ClientMessagesScreen() {
     return () => unsubscribe();
   }, [contactId]);
 
-  const handleOpenChat = useCallback((provider: Provider, conversationId?: string | null) => {
-    setActiveChat({ provider, conversationId });
-    setChatVisible(true);
+  const markConversationAsRead = useCallback(async (conversationId?: string | null) => {
+    if (!conversationId) return;
+    try {
+      await updateDoc(doc(db, 'conversations', conversationId), { unreadByClient: false });
+    } catch (err) {
+      console.error(err);
+    }
   }, []);
+
+  const handleOpenChat = useCallback(
+    (provider: Provider, conversationId?: string | null) => {
+      if (conversationId) {
+        markConversationAsRead(conversationId);
+      }
+      setActiveChat({ provider, conversationId });
+      setChatVisible(true);
+    },
+    [markConversationAsRead],
+  );
 
   const handleCloseChat = useCallback(() => {
     setChatVisible(false);
@@ -156,7 +175,7 @@ export default function ClientMessagesScreen() {
             {item.lastMessage || 'Démarrez la conversation'}
           </Text>
         </View>
-        <Ionicons name="chevron-forward" size={18} color="#CBD5F5" />
+        {item.unread ? <View style={styles.unreadDot} /> : <Ionicons name="chevron-forward" size={18} color="#CBD5F5" />}
       </TouchableOpacity>
     );
   }, [handleOpenChat]);
@@ -168,25 +187,36 @@ export default function ClientMessagesScreen() {
     </LinearGradient>
   ), []);
 
+  const renderGradientWrapper = (children: React.ReactNode) => (
+    <LinearGradient
+      colors={[Colors.light.lila, Colors.light.lightBlue]}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 0, y: 1 }}
+      style={styles.screenGradient}
+    >
+      <SafeAreaView style={styles.screen}>{children}</SafeAreaView>
+    </LinearGradient>
+  );
+
   if (loading) {
-    return (
-      <SafeAreaView style={styles.loaderScreen}>
+    return renderGradientWrapper(
+      <View style={styles.loaderScreen}>
         <ActivityIndicator color={Colors.light.purple} />
         <Text style={styles.loaderText}>Chargement de vos conversations…</Text>
-      </SafeAreaView>
+      </View>,
     );
   }
 
   if (error) {
-    return (
-      <SafeAreaView style={styles.loaderScreen}>
+    return renderGradientWrapper(
+      <View style={styles.loaderScreen}>
         <Text style={styles.errorText}>{error}</Text>
-      </SafeAreaView>
+      </View>,
     );
   }
 
-  return (
-    <SafeAreaView style={styles.screen}>
+  return renderGradientWrapper(
+    <>
       {header}
       {conversations.length === 0 ? (
         <View style={styles.emptyCard}>
@@ -213,20 +243,22 @@ export default function ClientMessagesScreen() {
           />
         )}
       </Modal>
-    </SafeAreaView>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
+  screenGradient: {
+    flex: 1,
+  },
   screen: {
     flex: 1,
-    backgroundColor: '#F1F2FB',
   },
   loaderScreen: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F1F2FB',
+    backgroundColor: 'transparent',
     paddingHorizontal: 24,
   },
   loaderText: {
@@ -311,5 +343,12 @@ const styles = StyleSheet.create({
   lastMessage: {
     marginTop: 4,
     color: '#4B5563',
+  },
+  unreadDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#FF4E6B',
+    marginLeft: 8,
   },
 });

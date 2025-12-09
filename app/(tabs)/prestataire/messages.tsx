@@ -6,11 +6,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
   collection,
+  doc,
   getDocs,
   limit,
   onSnapshot,
   orderBy,
   query,
+  updateDoc,
   where,
 } from 'firebase/firestore';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -35,6 +37,7 @@ import ProviderChatScreen from '@/components/ProviderChatModal';
   lastMessage: string;
   lastMessageAt: Date | null;
   providerView: Provider;
+  unread: boolean;
 };
 
 const formatTimestamp = (value: Date | null) => {
@@ -130,6 +133,7 @@ export default function PrestataireMessagesScreen() {
             lastMessage: data.lastMessage ?? 'Nouvelle conversation',
             lastMessageAt: data.lastMessageAt?.toDate?.() ?? null,
             providerView: toProvider(data),
+            unread: Boolean(data.unreadByProvider),
           } as ConversationSummary;
         });
         setConversations(next);
@@ -144,10 +148,22 @@ export default function PrestataireMessagesScreen() {
     return () => unsubscribe();
   }, [providerContactId]);
 
-  const handleOpenChat = useCallback((provider: Provider, conversationId: string, clientName: string) => {
-    setActiveChat({ provider, conversationId, clientName });
-    setChatVisible(true);
+  const markConversationAsRead = useCallback(async (conversationId: string) => {
+    try {
+      await updateDoc(doc(db, 'conversations', conversationId), { unreadByProvider: false });
+    } catch (err) {
+      console.error(err);
+    }
   }, []);
+
+  const handleOpenChat = useCallback(
+    (provider: Provider, conversationId: string, clientName: string) => {
+      markConversationAsRead(conversationId);
+      setActiveChat({ provider, conversationId, clientName });
+      setChatVisible(true);
+    },
+    [markConversationAsRead],
+  );
 
   const handleCloseChat = useCallback(() => {
     setChatVisible(false);
@@ -165,7 +181,7 @@ export default function PrestataireMessagesScreen() {
           </View>
           <Text style={styles.lastMessage}>{item.lastMessage}</Text>
         </View>
-        <Ionicons name="chevron-forward" size={18} color="#CBD5F5" />
+        {item.unread ? <View style={styles.unreadDot} /> : <Ionicons name="chevron-forward" size={18} color="#CBD5F5" />}
       </TouchableOpacity>
     );
   }, [handleOpenChat]);
@@ -325,5 +341,12 @@ const styles = StyleSheet.create({
   lastMessage: {
     marginTop: 4,
     color: '#4B5563',
+  },
+  unreadDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#FF4E6B',
+    marginLeft: 8,
   },
 });

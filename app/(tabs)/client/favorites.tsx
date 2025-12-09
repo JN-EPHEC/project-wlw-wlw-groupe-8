@@ -5,6 +5,7 @@ import { FlatList, Image, SafeAreaView, StyleSheet, Text, TouchableOpacity, View
 
 import { useFavorites } from '@/context/FavoritesContext';
 import { Provider } from '@/constants/providers';
+import { useThemeColors } from '@/hooks/UseThemeColors';
 
 const FavoriteCard = ({
   provider,
@@ -64,6 +65,7 @@ const FavoriteCard = ({
 
 const FavoritesScreen = () => {
   const { favorites, toggleFavorite } = useFavorites();
+  const colors = useThemeColors();
 
   const renderFavorite = useCallback(
     ({ item }: { item: Provider }) => (
@@ -74,9 +76,9 @@ const FavoritesScreen = () => {
 
   return (
     <LinearGradient
-      colors={['#F1E7FF', '#E0F7FF']}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
+      colors={[colors.lila, colors.lightBlue]}
+      start={{ x: 0.5, y: 0 }}
+      end={{ x: 0.5, y: 1 }}
       style={styles.gradient}
     >
       <SafeAreaView style={styles.safeArea}>

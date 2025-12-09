@@ -31,9 +31,34 @@ const getConfirmError = (value: string, password: string) => {
   return '';
 };
 
-export default function ClientCredentials(props: any) {
+type ClientCredentialsProps = {
+  accepted: boolean;
+  setAccepted: (value: boolean | ((prev: boolean) => boolean)) => void;
+  email: string;
+  setEmail: (value: string) => void;
+  password: string;
+  setPassword: (value: string) => void;
+  confirmPassword: string;
+  setConfirmPassword: (value: string) => void;
+  signUp: () => void;
+  loading?: boolean;
+  errorMessage?: string | null;
+};
+
+export default function ClientCredentials({
+  accepted,
+  setAccepted,
+  email,
+  setEmail,
+  password,
+  setPassword,
+  confirmPassword,
+  setConfirmPassword,
+  signUp,
+  loading = false,
+  errorMessage = null,
+}: ClientCredentialsProps) {
     const colors = useThemeColors();
-    const { accepted, setAccepted, email, setEmail, password, setPassword, confirmPassword, setConfirmPassword, signUp } = props;
       const [touched, setTouched] = useState({
         email: false,
         password: false,
@@ -146,18 +171,23 @@ export default function ClientCredentials(props: any) {
           <ThemedText variant="body" style={styles.link}>politique de confidentialité</ThemedText>
         </ThemedText>
       </Pressable>
-      <Pressable style={styles.button} disabled={!isFormValid} onPress={signUp}>
+      <Pressable style={styles.button} disabled={!isFormValid || loading} onPress={signUp}>
         <LinearGradient
           colors={[Colors.light.pink, Colors.light.purple, Colors.light.blue]}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
-          style={[styles.buttonGradient, !isFormValid && styles.buttonDisabled]}
+          style={[styles.buttonGradient, (!isFormValid || loading) && styles.buttonDisabled]}
         >
           <ThemedText color="white" style={styles.buttonLabel}>
-            Créer mon compte
+            {loading ? 'Création...' : 'Créer mon compte'}
           </ThemedText>
         </LinearGradient>
       </Pressable>
+      {errorMessage ? (
+        <ThemedText color="pink" style={[styles.errorText, styles.serverError]}>
+          {errorMessage}
+        </ThemedText>
+      ) : null}
     </Card>
     )
 }
@@ -214,6 +244,10 @@ const styles = StyleSheet.create({
   errorText: {
     fontSize: 13,
     lineHeight: 16,
+  },
+  serverError: {
+    textAlign: 'center',
+    marginTop: 8,
   },
   checkboxRow: {
     flexDirection: 'row',

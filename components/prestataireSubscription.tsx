@@ -49,9 +49,14 @@ const paymentMethods = [
     { id: 'sepa', label: 'SEPA', icon: 'swap-horizontal-outline' as const },
 ];
 
-export default function PrestataireSubscription(props: any) {
+type PrestataireSubscriptionProps = {
+    signUp: () => void;
+    loading?: boolean;
+    errorMessage?: string | null;
+};
+
+export default function PrestataireSubscription({ signUp, loading = false, errorMessage = null }: PrestataireSubscriptionProps) {
     const colors = useThemeColors();
-    const { signUp } = props;
     const [selectedPlan, setSelectedPlan] = useState<Plan['id']>('annual');
 
     return (
@@ -218,18 +223,23 @@ export default function PrestataireSubscription(props: any) {
                 ))}
             </View>
 
-            <Pressable style={styles.primaryAction} onPress={() => signUp()}>
+            <Pressable style={styles.primaryAction} onPress={signUp} disabled={loading}>
                 <LinearGradient
                     colors={[Colors.light.pink, Colors.light.purple, Colors.light.blue]}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
-                    style={styles.primaryButton}
+                    style={[styles.primaryButton, loading && styles.primaryButtonDisabled]}
                 >
                     <ThemedText color="white" style={styles.primaryLabel}>
-                        Confirmer et payer
+                        {loading ? 'Traitement...' : 'Confirmer et payer'}
                     </ThemedText>
                 </LinearGradient>
             </Pressable>
+            {errorMessage ? (
+                <ThemedText color="pink" style={styles.errorText}>
+                    {errorMessage}
+                </ThemedText>
+            ) : null}
 
             <ThemedText variant="body" color="gray" style={styles.footerNote}>
                 Vous pouvez annuler votre abonnement à tout moment.
@@ -433,6 +443,9 @@ const styles = StyleSheet.create({
         paddingVertical: 18,
         alignItems: 'center',
     },
+    primaryButtonDisabled: {
+        opacity: 0.6,
+    },
     primaryLabel: {
         fontSize: 16,
         fontFamily: 'Poppins-Regular',
@@ -440,5 +453,9 @@ const styles = StyleSheet.create({
     footerNote: {
         textAlign: 'center',
         marginTop: 16,
+    },
+    errorText: {
+        textAlign: 'center',
+        marginTop: 12,
     },
 });

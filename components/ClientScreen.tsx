@@ -1,5 +1,6 @@
 import ProviderChatModal from '@/components/ProviderChatModal';
 import ProviderProfileModal from '@/components/ProviderProfileModal';
+import { Colors } from '@/constants/Colors';
 import { Provider } from '@/constants/providers';
 import { useFavorites } from '@/context/FavoritesContext';
 import { db } from '@/fireBaseConfig';
@@ -10,6 +11,7 @@ import {
   PLACEHOLDER_AVATAR_URI,
 } from '@/utils/providerMapper';
 import { Ionicons } from '@expo/vector-icons';
+import MaskedView from '@react-native-masked-view/masked-view';
 import { LinearGradient } from 'expo-linear-gradient';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -19,6 +21,7 @@ import {
   Image,
   ImageStyle,
   Modal,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -27,7 +30,63 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-const jobOptions = ['Photographe', 'DJ', 'Traiteur', 'Fleuriste', 'Décorateur', 'Animateur'];
+import { useThemeColors } from '@/hooks/UseThemeColors';
+
+const jobOptions = [
+  "DJ",
+  "Photographe",
+  "Vidéaste",
+  "Traiteur",
+  "Barman",
+  "Serveur / Serveuse",
+  "Food truck",
+  "Animateur",
+  "Groupe de musique",
+  "Musicien solo",
+  "Photobooth",
+  "Décorateur",
+  "Fleuriste",
+  "Agent de sécurité",
+  "Hôte / Hôtesse d’accueil",
+  "Location de matériel (tables, chaises, mobilier…)",
+  "Location de tente",
+  "Chauffeur privé",
+  "Animation enfants",
+  "Maquilleuse professionnelle",
+  "Magicien"
+];
+const cityOptions = [
+  "Bruxelles",
+  "Anvers",
+  "Gand",
+  "Bruges",
+  "Liège",
+  "Charleroi",
+  "Namur",
+  "Louvain",
+  "Mons",
+  "Tournai",
+  "Ostende",
+  "Malines",
+  "Hasselt",
+  "Courtrai",
+  "La Louvière",
+  "Arlon",
+  "Verviers",
+  "Seraing",
+  "Wavre",
+  "Dinant",
+  "Knokke-Heist",
+  "Ypres",
+  "Roulers",
+  "Alost",
+  "Saint-Nicolas",
+  "Blankenberge",
+  "Nivelles",
+  "Waterloo",
+  "Bastogne",
+  "Durbuy",
+];
 const priceOptions = ['Tous', '0€ - 250€', '250€ - 500€', '500€ - 1000€', '1000€ +'];
 const monthNames = [
   'Janvier',
@@ -361,16 +420,13 @@ const HomeHeader = ({
   return (
     <View style={styles.headerContainer}>
       <View style={styles.appBar}>
-        <Text style={styles.logoText}>SpeedEvent</Text>
+        <MaskedView maskElement={<Text style={[styles.logoText, styles.logoMask]}>SpeedEvent</Text>}>
+          <LinearGradient colors={[Colors.light.pink, Colors.light.purple]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
+            <Text style={[styles.logoText, styles.logoInvisible]}>SpeedEvent</Text>
+          </LinearGradient>
+        </MaskedView>
 
-        <View style={styles.appBarActions}>
-          <View style={styles.notificationIcon}>
-            <Ionicons name="notifications-outline" size={20} color="#1F1F33" />
-            <View style={styles.notificationBadge}>
-              <Text style={styles.notificationBadgeText}>1</Text>
-            </View>
-          </View>
-        </View>
+        <View style={styles.appBarActions} />
       </View>
 
       <View style={styles.heroTexts}>
@@ -428,6 +484,7 @@ const HomeHeader = ({
 };
 
 const ClientScreen = () => {
+  const colors = useThemeColors();
   const { toggleFavorite, isFavorite } = useFavorites();
   const [prestataires, setPrestataires] = useState<ProviderWithMeta[]>([]);
   const [loadingProviders, setLoadingProviders] = useState(true);
@@ -485,17 +542,7 @@ const ClientScreen = () => {
     };
   }, []);
 
-  const availableCities = useMemo(() => {
-    const citySet = new Set<string>();
-    prestataires.forEach((provider) => {
-      provider._cityValues.forEach((city) => {
-        if (city) {
-          citySet.add(city);
-        }
-      });
-    });
-    return Array.from(citySet).sort((a, b) => a.localeCompare(b, 'fr'));
-  }, [prestataires]);
+  const availableCities = cityOptions;
 
   const calendarMatrix = useMemo(() => buildCalendarMatrix(calendarCursor), [calendarCursor]);
 
@@ -745,7 +792,13 @@ const ClientScreen = () => {
   );
 
   return (
-    <SafeAreaView style={styles.screen}>
+    <LinearGradient
+      colors={[colors.lila, colors.lightBlue]}
+      start={{ x: 0.5, y: 0 }}
+      end={{ x: 0.5, y: 1 }}
+      style={styles.screenGradient}
+    >
+    <SafeAreaView style={styles.safeArea}>
       <FlatList
         data={filteredProviders}
         keyExtractor={(item) => item.id}
@@ -784,35 +837,41 @@ const ClientScreen = () => {
           {availableCities.length > 0 && (
             <>
               <Text style={styles.modalSectionLabel}>Villes disponibles</Text>
-              <View style={styles.modalListContainer}>
-                {availableCities.map((city, index) => {
-                  const isActive = selectedCities.includes(city);
-                  return (
-                    <TouchableOpacity
-                      key={city}
-                      style={[
-                        styles.modalOptionRow,
-                        index === availableCities.length - 1 && styles.modalOptionRowLast,
-                        isActive && styles.modalOptionRowActive,
-                      ]}
-                      onPress={() => handleToggleCity(city)}
-                    >
-                      <Text
+              <View style={styles.modalListWrapper}>
+                <ScrollView
+                  style={styles.modalScrollableList}
+                  contentContainerStyle={styles.modalListContainer}
+                  showsVerticalScrollIndicator={false}
+                >
+                  {availableCities.map((city, index) => {
+                    const isActive = selectedCities.includes(city);
+                    return (
+                      <TouchableOpacity
+                        key={city}
                         style={[
-                          styles.modalOptionText,
-                          isActive && styles.modalOptionTextActive,
+                          styles.modalOptionRow,
+                          index === availableCities.length - 1 && styles.modalOptionRowLast,
+                          isActive && styles.modalOptionRowActive,
                         ]}
+                        onPress={() => handleToggleCity(city)}
                       >
-                        {city}
-                      </Text>
-                      <Ionicons
-                        name={isActive ? 'checkmark-circle' : 'ellipse-outline'}
-                        size={20}
-                        color={isActive ? '#6B36C9' : '#C4C6D7'}
-                      />
-                    </TouchableOpacity>
-                  );
-                })}
+                        <Text
+                          style={[
+                            styles.modalOptionText,
+                            isActive && styles.modalOptionTextActive,
+                          ]}
+                        >
+                          {city}
+                        </Text>
+                        <Ionicons
+                          name={isActive ? 'checkmark-circle' : 'ellipse-outline'}
+                          size={20}
+                          color={isActive ? '#6B36C9' : '#C4C6D7'}
+                        />
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
               </View>
               {selectedCities.length > 0 && (
                 <TouchableOpacity style={styles.modalClearButton} onPress={handleClearCities}>
@@ -965,35 +1024,41 @@ const ClientScreen = () => {
                 <Ionicons name="close" size={18} color="#4C4D63" />
               </TouchableOpacity>
             </View>
-            <View style={styles.modalListContainer}>
-              {jobOptions.map((job, index) => {
-                const isActive = selectedJob === job;
-                return (
-                  <TouchableOpacity
-                    key={job}
-                    style={[
-                      styles.modalOptionRow,
-                      index === jobOptions.length - 1 && styles.modalOptionRowLast,
-                      isActive && styles.modalOptionRowActive,
-                    ]}
-                    onPress={() => handleSelectJob(job)}
-                  >
-                    <Text
+            <View style={styles.modalListWrapper}>
+              <ScrollView
+                style={styles.modalScrollableList}
+                contentContainerStyle={styles.modalListContainer}
+                showsVerticalScrollIndicator={false}
+              >
+                {jobOptions.map((job, index) => {
+                  const isActive = selectedJob === job;
+                  return (
+                    <TouchableOpacity
+                      key={job}
                       style={[
-                        styles.modalOptionText,
-                        isActive && styles.modalOptionTextActive,
+                        styles.modalOptionRow,
+                        index === jobOptions.length - 1 && styles.modalOptionRowLast,
+                        isActive && styles.modalOptionRowActive,
                       ]}
+                      onPress={() => handleSelectJob(job)}
                     >
-                      {job}
-                    </Text>
-                    <Ionicons
-                      name={isActive ? 'radio-button-on' : 'radio-button-off'}
-                      size={20}
-                      color={isActive ? '#6B36C9' : '#C4C6D7'}
-                    />
-                  </TouchableOpacity>
-                );
-              })}
+                      <Text
+                        style={[
+                          styles.modalOptionText,
+                          isActive && styles.modalOptionTextActive,
+                        ]}
+                      >
+                        {job}
+                      </Text>
+                      <Ionicons
+                        name={isActive ? 'radio-button-on' : 'radio-button-off'}
+                        size={20}
+                        color={isActive ? '#6B36C9' : '#C4C6D7'}
+                      />
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
             </View>
             <TouchableOpacity style={styles.modalPrimaryButton} onPress={closeAllModals}>
               <Text style={styles.modalPrimaryButtonText}>Valider</Text>
@@ -1025,16 +1090,18 @@ const ClientScreen = () => {
         {chatProvider && <ProviderChatModal provider={chatProvider} onClose={handleCloseChat} />}
       </Modal>
     </SafeAreaView>
+    </LinearGradient>
   );
 };
 
 export default ClientScreen;
 
 const styles = StyleSheet.create({
-  screen: {
+  screenGradient: {
     flex: 1,
-    backgroundColor: '#F1E7FF',
-    paddingHorizontal: 0,
+  },
+  safeArea: {
+    flex: 1,
     paddingTop: 12,
   },
   listContent: {
@@ -1054,56 +1121,34 @@ const styles = StyleSheet.create({
   logoText: {
     fontSize: 22,
     fontWeight: '800',
-    color: '#FF69B4',
+  },
+  logoMask: {
+    color: '#000',
+  },
+  logoInvisible: {
+    color: 'transparent',
   },
   appBarActions: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
   },
-  notificationIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: '#FFFFFF',
-    justifyContent: 'center',
-    alignItems: 'center',
-    position: 'relative',
-    shadowColor: '#B5A8FF',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-    elevation: 3,
-  },
-  notificationBadge: {
-    position: 'absolute',
-    top: 6,
-    right: 6,
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: '#FF3B30',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  notificationBadgeText: {
-    color: '#FFFFFF',
-    fontSize: 10,
-    fontWeight: '700',
-  },
   heroTexts: {
     marginBottom: 20,
+    alignItems: 'center',
   },
   heroTitle: {
     fontSize: 30,
     fontWeight: '800',
     color: '#1F1F33',
+    textAlign: 'center',
   },
   heroSubtitle: {
     marginTop: 8,
     fontSize: 16,
     color: '#7D7F8E',
     lineHeight: 22,
+    textAlign: 'center',
   },
   searchBar: {
     position: 'relative',
@@ -1352,8 +1397,13 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     borderWidth: 1,
     borderColor: '#E4E6F1',
-    marginTop: 8,
     overflow: 'hidden',
+  },
+  modalListWrapper: {
+    marginTop: 8,
+  },
+  modalScrollableList: {
+    maxHeight: 320,
   },
   modalOptionRow: {
     flexDirection: 'row',

@@ -6,18 +6,85 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import React, { useState } from 'react';
 import {
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    TextInput,
-    View
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  View
 } from 'react-native';
 
-export default function PrestataireWork(props: any) {
+type PrestataireWorkProps = {
+  job: string;
+  setJob: (value: string) => void;
+  cities: string[];
+  setCities: (value: string) => void;
+  step: number;
+  setStep: (value: number) => void;
+};
+
+export default function PrestataireWork({
+  job,
+  setJob,
+  cities,
+  setCities,
+  step,
+  setStep,
+}: PrestataireWorkProps) {
     const colors = useThemeColors();
-    const { job, setJob, cities, setCities, price, setPrice, step, setStep } = props;
-    const jobOptions = ['Fleuriste', 'DJ', 'Photographe', 'Traiteur', 'Animateur', 'Décorateur'];
-    const cityOptions = ['Bruxelles', 'Liège', 'Anvers', 'Namur', 'Gand', 'Ostande'];
+    const jobOptions = [
+  "DJ",
+  "Photographe",
+  "Vidéaste",
+  "Traiteur",
+  "Barman",
+  "Serveur / Serveuse",
+  "Food truck",
+  "Animateur",
+  "Groupe de musique",
+  "Musicien solo",
+  "Photobooth",
+  "Décorateur",
+  "Fleuriste",
+  "Agent de sécurité",
+  "Hôte / Hôtesse d’accueil",
+  "Location de matériel (tables, chaises, mobilier…)",
+  "Location de tente",
+  "Chauffeur privé",
+  "Animation enfants",
+  "Maquilleuse professionnelle",
+  "Magicien"
+];
+    const cityOptions = [
+  "Bruxelles",
+  "Anvers",
+  "Gand",
+  "Bruges",
+  "Liège",
+  "Charleroi",
+  "Namur",
+  "Louvain",
+  "Mons",
+  "Tournai",
+  "Ostende",
+  "Malines",
+  "Hasselt",
+  "Courtrai",
+  "La Louvière",
+  "Arlon",
+  "Verviers",
+  "Seraing",
+  "Wavre",
+  "Dinant",
+  "Knokke-Heist",
+  "Ypres",
+  "Roulers",
+  "Alost",
+  "Saint-Nicolas",
+  "Blankenberge",
+  "Nivelles",
+  "Waterloo",
+  "Bastogne",
+  "Durbuy"
+];
     const [showErrors, setShowErrors] = useState(false);
     const [jobOpen, setJobOpen] = useState(false);
     const [cityOpen, setCityOpen] = useState(false);
@@ -25,12 +92,11 @@ export default function PrestataireWork(props: any) {
 
     const toggleCitySelection = (option: string) =>
         setCities((prev: any) =>
-            prev.includes(option) ? prev.filter((value: any) => value !== option) : [...prev, option]
+            prev.includes(option) ? prev.filter((value) => value !== option) : [...prev, option]
         );
-    const isFormValid = job && cities.length > 0 && price.trim().length > 0;
+    const isFormValid = job && cities.length > 0;
     const jobError = showErrors && !job;
     const cityError = showErrors && cities.length === 0;
-    const priceError = showErrors && !price.trim();
         
     const handleContinue = () => {
       if (!isFormValid) {
@@ -144,31 +210,6 @@ export default function PrestataireWork(props: any) {
         Veuillez sélectionner au moins une ville
       </ThemedText>
     </View>
-       <View style={styles.formSection}>
-      <ThemedText variant="body" color="black" style={styles.label}>
-        Prix moyen par soirée ou demi-journée
-      </ThemedText>
-      <TextInput
-        placeholder="Ex. : 350 € par soirée"
-        placeholderTextColor={colors.gray}
-        keyboardType="numeric"
-        value={price}
-        onChangeText={(value) => {
-          const numeric = value.replace(/[^0-9]/g, '');
-          setPrice(numeric);
-        }}
-        style={[
-          styles.input,
-          { backgroundColor: Colors.light.lightBlue },
-          priceError ? styles.inputError : null,
-        ]}
-      />
-      {priceError ? (
-        <ThemedText color="pink" style={styles.errorText}>
-          Ce champ est obligatoire
-        </ThemedText>
-      ) : null}
-    </View>
        <Pressable style={styles.button} onPress={handleContinue}>
       <LinearGradient
         colors={[Colors.light.pink, Colors.light.purple, Colors.light.blue]}
@@ -235,19 +276,6 @@ const styles = StyleSheet.create({
   },
   helper: {
     fontSize: 12,
-  },
-  input: {
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    fontSize: 16,
-    fontFamily: 'Inter-Regular',
-    color: Colors.light.black,
-    borderWidth: 1,
-    borderColor: 'transparent',
-  },
-  inputError: {
-    borderColor: Colors.light.pink,
   },
   errorText: {
     fontSize: 13,

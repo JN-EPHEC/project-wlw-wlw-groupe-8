@@ -245,6 +245,25 @@ const ProviderChatModal = ({
     listRef.current?.scrollToEnd({ animated: true });
   }, [messages]);
 
+  const markConversationAsRead = useCallback(
+    async (conversationKey?: string | null) => {
+      if (!conversationKey) return;
+      try {
+        await updateDoc(doc(db, 'conversations', conversationKey), {
+          [mode === 'client' ? 'unreadByClient' : 'unreadByProvider']: false,
+        });
+      } catch (err) {
+        console.error(err);
+      }
+    },
+    [mode],
+  );
+
+  useEffect(() => {
+    if (!resolvedConversationId) return;
+    markConversationAsRead(resolvedConversationId);
+  }, [resolvedConversationId, markConversationAsRead]);
+
   const getOrCreateConversationId = useCallback(async (): Promise<string | null> => {
     if (resolvedConversationId) {
       return resolvedConversationId;
@@ -300,6 +319,8 @@ const ProviderChatModal = ({
         createdAt: serverTimestamp(),
         lastMessage: '',
         lastMessageAt: null,
+        unreadByClient: false,
+        unreadByProvider: false,
       });
       setResolvedConversationId(docRef.id);
       return docRef.id;
@@ -335,7 +356,7 @@ const ProviderChatModal = ({
         senderId,
         createdAt: serverTimestamp(),
       });
-      await updateDoc(doc(db, 'conversations', conversationKey), {
+      const updates: Record<string, any> = {
         lastMessage: trimmed,
         lastMessageAt: serverTimestamp(),
         lastMessageSenderType: mode,
@@ -357,7 +378,17 @@ const ProviderChatModal = ({
         providerResponseTime: provider.responseTime,
         providerDescription: provider.description,
         providerServices: provider.services ?? [],
-      });
+      };
+
+      if (mode === 'client') {
+        updates.unreadByProvider = true;
+        updates.unreadByClient = false;
+      } else {
+        updates.unreadByClient = true;
+        updates.unreadByProvider = false;
+      }
+
+      await updateDoc(doc(db, 'conversations', conversationKey), updates);
       setInput('');
       setError(null);
     } catch (err) {

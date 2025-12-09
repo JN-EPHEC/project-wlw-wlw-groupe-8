@@ -1,5 +1,10 @@
+import PrestataireAvailability, {
+  WeeklySchedule,
+  defaultWeeklySchedule,
+} from '@/components/prestataireAvailability';
 import PrestataireCredentials from '@/components/prestataireCredentials';
 import PrestataireFirstInfo from '@/components/prestataireFirstInfo';
+import PrestataireServices, { DraftService } from '@/components/prestataireServices';
 import PrestataireSubscription from '@/components/prestataireSubscription';
 import PrestataireWork from '@/components/prestataireWork';
 import { Colors } from '@/constants/Colors';
@@ -7,7 +12,8 @@ import { useThemeColors } from '@/hooks/UseThemeColors';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import { createUserWithEmailAndPassword } from 'firebase/auth';
+import { FirebaseError } from 'firebase/app';
+import { createUserWithEmailAndPassword, sendEmailVerification } from 'firebase/auth';
 import { addDoc, collection } from 'firebase/firestore';
 import React, { useState } from 'react';
 import {
@@ -32,9 +38,12 @@ export default function PrestataireFirstInfos() {
   const [vat, setVat] = useState('');
   const [job, setJob] = useState('');
   const [cities, setCities] = useState<string[]>([]);
-  const [price, setPrice] = useState('');
+  const [services, setServices] = useState<DraftService[]>([]);
+  const [weeklySchedule, setWeeklySchedule] = useState<WeeklySchedule>(defaultWeeklySchedule);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [signingUp, setSigningUp] = useState(false);
+  const [signupError, setSignupError] = useState<string | null>(null);
   const contactsCollection = collection(db, 'contacts');
   
 
@@ -48,22 +57,57 @@ export default function PrestataireFirstInfos() {
 
     const signUp = async () => {
       try {
-        const user = await createUserWithEmailAndPassword(auth, email, password);
-        if(user){
+        setSigningUp(true);
+        setSignupError(null);
+        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        if(userCredential){
+        const normalizedServices = services
+          .filter((service) => service.name.trim())
+          .map((service) => ({
+            name: service.name.trim(),
+            priceFrom: service.price ? Number(service.price) : null,
+            durationHours: service.duration ? Number(service.duration) : null,
+          }));
+
+        const availabilityPayload = Object.keys(weeklySchedule).reduce(
+          (acc, key) => {
+            acc[key as keyof WeeklySchedule] = {
+              active: weeklySchedule[key as keyof WeeklySchedule].active,
+              start: weeklySchedule[key as keyof WeeklySchedule].start,
+              end: weeklySchedule[key as keyof WeeklySchedule].end,
+            };
+            return acc;
+          },
+          {} as WeeklySchedule,
+        );
+
         await addDoc(contactsCollection, { 
           lastname: lastName, 
           firstname: firstName,
           vat: vat, 
           job: job,
           cities: cities,
-          price: price, 
+          services: normalizedServices,
+          availability: {
+            weekly: availabilityPayload,
+            blockedDates: [],
+            blockedRanges: [],
+          },
           type: "prestataire",
-          userId: user.user.uid 
+          userId: userCredential.user.uid 
         });
-        router.replace("/(tabs)/prestataire");
+        await sendEmailVerification(userCredential.user);
+        router.replace('/auth/verify-email');
         } 
       }catch(e){
-        alert("Erreur : " + e);
+        if (e instanceof FirebaseError && e.code === 'auth/email-already-in-use') {
+          setSignupError('Cette adresse e-mail est déjà utilisée.');
+        } else {
+          console.error(e);
+          setSignupError("Impossible de créer le compte. Vérifiez vos informations.");
+        }
+      } finally {
+        setSigningUp(false);
       }
     }
 
@@ -111,13 +155,27 @@ export default function PrestataireFirstInfos() {
                   setJob={setJob}
                   cities={cities}
                   setCities={setCities}
-                  price={price}
-                  setPrice={setPrice}
                   step={step}
                   setStep={setStep}
                 />
               }
               {step === 2 &&
+                <PrestataireServices
+                  services={services}
+                  setServices={setServices}
+                  step={step}
+                  setStep={setStep}
+                />
+              }
+              {step === 3 &&
+                <PrestataireAvailability
+                  weeklySchedule={weeklySchedule}
+                  setWeeklySchedule={setWeeklySchedule}
+                  step={step}
+                  setStep={setStep}
+                />
+              }
+              {step === 4 &&
                 <PrestataireCredentials
                   email={email}
                   setEmail={setEmail}
@@ -127,9 +185,11 @@ export default function PrestataireFirstInfos() {
                   setStep={setStep}
                 />
               }
-              {step === 3 &&
+              {step === 5 &&
                 <PrestataireSubscription
                   signUp={signUp}
+                  loading={signingUp}
+                  errorMessage={signupError}
                 />
               }
             </View>

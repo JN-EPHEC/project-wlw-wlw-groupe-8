@@ -5,7 +5,7 @@ import { useThemeColors } from '@/hooks/UseThemeColors';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import { createUserWithEmailAndPassword } from 'firebase/auth';
+import { createUserWithEmailAndPassword, sendEmailVerification } from 'firebase/auth';
 import { addDoc, collection } from 'firebase/firestore';
 import React, { useState } from 'react';
 import {
@@ -39,17 +39,36 @@ export default function ClientSignup() {
     }
   }
   
+  const [signingUp, setSigningUp] = useState(false);
+  const [signupError, setSignupError] = useState<string | null>(null);
+
   const signUp = async () => {
     try {
-      const user = await createUserWithEmailAndPassword(auth, email, password);
-      if(user) {
-        await addDoc(contactsCollection, { lastname: lastName, firstname: firstName, type: "client", userId: user.user.uid });
-        router.replace("/(tabs)/client");
+      setSigningUp(true);
+      setSignupError(null);
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      if (userCredential) {
+        await sendEmailVerification(userCredential.user);
+        await addDoc(contactsCollection, {
+          lastname: lastName,
+          firstname: firstName,
+          type: 'client',
+          userId: userCredential.user.uid,
+          email: email.trim(),
+        });
+        router.replace('/auth/verify-email');
       }
     } catch (e) {
-      alert("Erreur : " + e);
+      if (e instanceof Error && 'code' in e && (e as any).code === 'auth/email-already-in-use') {
+        setSignupError('Cette adresse e-mail est déjà utilisée.');
+      } else {
+        console.error(e);
+        setSignupError("Impossible de créer le compte. Vérifiez vos informations.");
+      }
+    } finally {
+      setSigningUp(false);
     }
-  }
+  };
 
   return (
     <View style={styles.screen}>
@@ -98,6 +117,8 @@ export default function ClientSignup() {
                   accepted={accepted} 
                   setAccepted={setAccepted}
                   signUp={signUp}
+                  loading={signingUp}
+                  errorMessage={signupError}
                 />
               }
             </View>

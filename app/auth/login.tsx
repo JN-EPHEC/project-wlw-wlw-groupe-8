@@ -47,6 +47,11 @@ export default function SignInScreen() {
       const q = query(contactsCollection, where("userId", "==", user.user.uid));
       const data = await getDocs(q);
       const userType = data.docs[0]?.data().type;
+      if (!user.user.emailVerified) {
+        setAuthError('Veuillez vérifier votre adresse e-mail avant de vous connecter.');
+        await auth.signOut();
+        return;
+      }
       if(userType === 'prestataire') {
         router.replace('/(tabs)/prestataire');
         return;
