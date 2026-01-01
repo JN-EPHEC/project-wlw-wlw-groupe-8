@@ -44,9 +44,20 @@ export default function SignInScreen() {
       setSubmitting(true);
       setAuthError(null);
       const user = await signInWithEmailAndPassword(auth, email, password);
-      const q = query(contactsCollection, where("userId", "==", user.user.uid));
+      const q = query(contactsCollection, where('userId', '==', user.user.uid));
       const data = await getDocs(q);
-      const userType = data.docs[0]?.data().type;
+      if (data.empty) {
+        setAuthError('Aucun profil associé à ce compte.');
+        await auth.signOut();
+        return;
+      }
+      const profile = data.docs[0]?.data();
+      if (profile?.accountDeleted) {
+        setAuthError('Ce compte a été supprimé.');
+        await auth.signOut();
+        return;
+      }
+      const userType = profile?.type;
       if (!user.user.emailVerified) {
         setAuthError('Veuillez vérifier votre adresse e-mail avant de vous connecter.');
         await auth.signOut();
@@ -150,34 +161,6 @@ export default function SignInScreen() {
                 </ThemedText>
               ) : null}
 
-              <View style={styles.divider}>
-                <View style={styles.dividerLine} />
-                <ThemedText color="gray" style={styles.dividerLabel}>
-                  Ou continuez avec
-                </ThemedText>
-                <View style={styles.dividerLine} />
-              </View>
-
-              <View style={styles.socialButtons}>
-                <Pressable style={styles.socialButton}>
-                  <Ionicons name="logo-google" size={18} color={Colors.light.black} style={styles.socialIconLeft} />
-                  <ThemedText color="black" style={styles.socialLabel}>
-                    Google
-                  </ThemedText>
-                </Pressable>
-                <Pressable style={[styles.socialButton, styles.socialApple]}>
-                  <Ionicons name="logo-apple" size={18} color={Colors.light.white} style={styles.socialIconLeft} />
-                  <ThemedText color="white" style={styles.socialLabel}>
-                    Apple
-                  </ThemedText>
-                </Pressable>
-                <Pressable style={[styles.socialButton, styles.socialFacebook]}>
-                  <Ionicons name="logo-facebook" size={18} color={Colors.light.white} style={styles.socialIconLeft} />
-                  <ThemedText color="white" style={styles.socialLabel}>
-                    Facebook
-                  </ThemedText>
-                </Pressable>
-              </View>
             </View>
 
             <View style={styles.footer}>

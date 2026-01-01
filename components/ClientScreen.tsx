@@ -1,6 +1,6 @@
 import ProviderChatModal from '@/components/ProviderChatModal';
 import ProviderProfileModal from '@/components/ProviderProfileModal';
-import { Colors } from '@/constants/Colors';
+import ClientHeroHeader from '@/components/ClientHeroHeader';
 import { Provider } from '@/constants/providers';
 import { useFavorites } from '@/context/FavoritesContext';
 import { db } from '@/fireBaseConfig';
@@ -11,7 +11,6 @@ import {
   PLACEHOLDER_AVATAR_URI,
 } from '@/utils/providerMapper';
 import { Ionicons } from '@expo/vector-icons';
-import MaskedView from '@react-native-masked-view/masked-view';
 import { LinearGradient } from 'expo-linear-gradient';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -346,11 +345,11 @@ const ProviderCard = ({ provider, onToggleFavorite, isFavorite, onViewProfile }:
 
   return (
     <View style={styles.card}>
-      <ProviderAvatar name={provider.name} image={provider.image} style={styles.cardImage} />
+      <ProviderAvatar name={provider.companyName || provider.name} image={provider.image} style={styles.cardImage} />
 
       <View style={styles.cardBody}>
         <View style={styles.textGroup}>
-          <Text style={styles.cardName}>{provider.name}</Text>
+          <Text style={styles.cardName}>{provider.companyName || provider.name}</Text>
           <Text style={styles.cardCategory}>{provider.category}</Text>
           <Text style={styles.cardCitiesLabel}>Disponible à :</Text>
           <Text style={styles.cardCityList}>{provider.city}</Text>
@@ -419,23 +418,6 @@ const HomeHeader = ({
 
   return (
     <View style={styles.headerContainer}>
-      <View style={styles.appBar}>
-        <MaskedView maskElement={<Text style={[styles.logoText, styles.logoMask]}>SpeedEvent</Text>}>
-          <LinearGradient colors={[Colors.light.pink, Colors.light.purple]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
-            <Text style={[styles.logoText, styles.logoInvisible]}>SpeedEvent</Text>
-          </LinearGradient>
-        </MaskedView>
-
-        <View style={styles.appBarActions} />
-      </View>
-
-      <View style={styles.heroTexts}>
-        <Text style={styles.heroTitle}>Trouvez vos prestataires.</Text>
-        <Text style={styles.heroSubtitle}>
-          Des milliers de professionnels pour{'\n'}vos événements.
-        </Text>
-      </View>
-
       <View style={styles.searchBar}>
         <Ionicons name="search" size={18} color="#ABADB8" style={styles.searchIcon} />
         <TextInput
@@ -511,20 +493,60 @@ const ClientScreen = () => {
       try {
         const contactsRef = collection(db, 'contacts');
         const prestatairesQuery = query(contactsRef, where('type', '==', 'prestataire'));
-        const snapshot = await getDocs(prestatairesQuery);
+        const contactsSnapshot = await getDocs(prestatairesQuery);
         if (!isMounted) {
           return;
         }
-        const parsed = snapshot.docs.map((doc) => {
-          const data = doc.data();
-          const provider = mapContactToProvider(doc.id, data);
-          return {
-            ...provider,
-            _minPriceValue: computeMinServicePrice(provider),
-            _cityValues: normalizeCities(provider, data),
-            _availabilityMeta: normalizeAvailabilityMeta(data.availability),
-          };
-        });
+
+        const docs = contactsSnapshot.docs.map((doc) => ({ id: doc.id, data: doc.data() }));
+        const freeProviderIds = docs
+          .filter((doc) => !doc.data.accountDeleted && doc.data.subscriptionPlan === 'free')
+          .map((doc) => doc.id);
+
+        const confirmedCounts: Record<string, number> = {};
+        if (freeProviderIds.length > 0) {
+          const chunkSize = 10;
+          const chunks: string[][] = [];
+          for (let i = 0; i < freeProviderIds.length; i += chunkSize) {
+            chunks.push(freeProviderIds.slice(i, i + chunkSize));
+          }
+          const bookingCollection = collection(db, 'bookingRequests');
+          await Promise.all(
+            chunks.map(async (chunkIds) => {
+          const bookingsSnapshot = await getDocs(
+            query(
+              bookingCollection,
+              where('status', '==', 'accepted'),
+              where('providerId', 'in', chunkIds),
+            ),
+          );
+              bookingsSnapshot.forEach((bookingDoc) => {
+                const providerId = bookingDoc.data().providerId;
+                if (typeof providerId === 'string') {
+                  confirmedCounts[providerId] = (confirmedCounts[providerId] ?? 0) + 1;
+                }
+              });
+            }),
+          );
+        }
+
+        const parsed = docs
+          .map(({ id, data }) => {
+            if (data.accountDeleted) {
+              return null;
+            }
+            if (data.subscriptionPlan === 'free' && (confirmedCounts[id] ?? 0) >= 3) {
+              return null;
+            }
+            const provider = mapContactToProvider(id, data);
+            return {
+              ...provider,
+              _minPriceValue: computeMinServicePrice(provider),
+              _cityValues: normalizeCities(provider, data),
+              _availabilityMeta: normalizeAvailabilityMeta(data.availability),
+            };
+          })
+          .filter((provider): provider is ProviderWithMeta => Boolean(provider));
         setPrestataires(parsed);
       } catch (error) {
         console.error('Erreur lors du chargement des prestataires :', error);
@@ -565,9 +587,10 @@ const ClientScreen = () => {
     const normalizedSearch = searchQuery.trim().toLowerCase();
     return prestataires.filter((provider) => {
       if (normalizedSearch.length) {
+        const displayName = (provider.companyName || provider.name || '').toLowerCase();
+        const categoryName = provider.category?.toLowerCase?.() ?? '';
         const nameMatch =
-          provider.name.toLowerCase().includes(normalizedSearch) ||
-          provider.category.toLowerCase().includes(normalizedSearch);
+          displayName.includes(normalizedSearch) || categoryName.includes(normalizedSearch);
         if (!nameMatch) {
           return false;
         }
@@ -798,12 +821,16 @@ const ClientScreen = () => {
       end={{ x: 0.5, y: 1 }}
       style={styles.screenGradient}
     >
-    <SafeAreaView style={styles.safeArea}>
-      <FlatList
-        data={filteredProviders}
-        keyExtractor={(item) => item.id}
-        renderItem={renderProvider}
-        contentContainerStyle={styles.listContent}
+      <SafeAreaView style={styles.safeArea} edges={['left', 'right', 'bottom']}>
+        <ClientHeroHeader
+          title="SpeedEvent"
+          subtitle="Trouvez vos prestataires – des milliers de professionnels pour vos événements"
+        />
+        <FlatList
+          data={filteredProviders}
+          keyExtractor={(item) => item.id}
+          renderItem={renderProvider}
+          contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
         ListHeaderComponent={headerComponent}
         ListEmptyComponent={
@@ -1102,7 +1129,7 @@ const styles = StyleSheet.create({
   },
   safeArea: {
     flex: 1,
-    paddingTop: 12,
+    paddingTop: 0,
   },
   listContent: {
     paddingBottom: 32,
@@ -1132,23 +1159,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-  },
-  heroTexts: {
-    marginBottom: 20,
-    alignItems: 'center',
-  },
-  heroTitle: {
-    fontSize: 30,
-    fontWeight: '800',
-    color: '#1F1F33',
-    textAlign: 'center',
-  },
-  heroSubtitle: {
-    marginTop: 8,
-    fontSize: 16,
-    color: '#7D7F8E',
-    lineHeight: 22,
-    textAlign: 'center',
   },
   searchBar: {
     position: 'relative',

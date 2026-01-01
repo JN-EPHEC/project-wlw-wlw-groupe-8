@@ -3,6 +3,7 @@ import { Provider } from '@/constants/providers';
 import { auth, db } from '@/fireBaseConfig';
 import { PLACEHOLDER_AVATAR_URI } from '@/utils/providerMapper';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import {
   addDoc,
   collection,
@@ -22,6 +23,7 @@ import {
   FlatList,
   Image,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   SafeAreaView,
   StyleSheet,
@@ -60,7 +62,18 @@ type ConversationMeta = {
   clientAvatar?: string | null;
   clientContactId?: string;
   providerId?: string;
+  clientDeleted?: boolean;
 };
+
+type BookingSummary = {
+  id: string;
+  date?: string;
+  slot?: { start?: string; end?: string } | null;
+  status?: string;
+  serviceName?: string | null;
+};
+
+const DELETED_USER_LABEL = 'Utilisateur introuvable';
 
 const ProviderChatModal = ({
   provider,
@@ -69,6 +82,7 @@ const ProviderChatModal = ({
   headerTitle,
   mode = 'client',
 }: ProviderChatModalProps) => {
+  const providerDisplayName = provider.companyName || provider.name;
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -83,6 +97,8 @@ const ProviderChatModal = ({
   );
   const [conversationMeta, setConversationMeta] = useState<ConversationMeta | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [sharedRequests, setSharedRequests] = useState<BookingSummary[]>([]);
+  const [requestsModalVisible, setRequestsModalVisible] = useState(false);
   const listRef = useRef<FlatList<ChatMessage>>(null);
 
   useEffect(() => {
@@ -302,9 +318,11 @@ const ProviderChatModal = ({
         clientContactId: clientProfile.contactId,
         clientName: clientProfile.displayName,
         clientAvatar: clientProfile.avatar ?? null,
+        clientDeleted: false,
         clientUserId: user.uid,
         providerId: provider.id,
-        providerName: provider.name,
+        providerName: providerDisplayName,
+        providerCompanyName: provider.companyName ?? null,
         providerCategory: provider.category,
         providerCity: provider.city,
         providerPrice: provider.price,
@@ -329,7 +347,7 @@ const ProviderChatModal = ({
       setError('Impossible de démarrer la conversation.');
       return null;
     }
-  }, [resolvedConversationId, mode, clientProfile, provider]);
+  }, [resolvedConversationId, mode, clientProfile, provider, providerDisplayName]);
 
   const handleSend = useCallback(async () => {
     const trimmed = input.trim();
@@ -356,19 +374,22 @@ const ProviderChatModal = ({
         senderId,
         createdAt: serverTimestamp(),
       });
+      const fallbackClientName =
+        mode === 'client'
+          ? clientProfile?.displayName ?? conversationMeta?.clientName ?? 'Client SpeedEvent'
+          : conversationMeta?.clientName ?? headerTitle ?? 'Client SpeedEvent';
+      const effectiveClientName = conversationMeta?.clientDeleted ? DELETED_USER_LABEL : fallbackClientName;
       const updates: Record<string, any> = {
         lastMessage: trimmed,
         lastMessageAt: serverTimestamp(),
         lastMessageSenderType: mode,
-        clientName:
-          mode === 'client'
-            ? clientProfile?.displayName ?? conversationMeta?.clientName ?? 'Client SpeedEvent'
-            : conversationMeta?.clientName ?? headerTitle ?? 'Client SpeedEvent',
+        clientName: effectiveClientName,
         clientAvatar:
           mode === 'client'
             ? clientProfile?.avatar ?? null
             : conversationMeta?.clientAvatar ?? null,
-        providerName: provider.name,
+        providerName: providerDisplayName,
+        providerCompanyName: provider.companyName ?? null,
         providerCategory: provider.category,
         providerCity: provider.city,
         providerPrice: provider.price,
@@ -405,15 +426,19 @@ const ProviderChatModal = ({
     input,
     mode,
     provider,
+    providerDisplayName,
     sending,
   ]);
 
   const chatPartnerName = useMemo(() => {
     if (mode === 'provider') {
+      if (conversationMeta?.clientDeleted) {
+        return DELETED_USER_LABEL;
+      }
       return conversationMeta?.clientName || headerTitle || 'Client SpeedEvent';
     }
-    return headerTitle || provider.name;
-  }, [mode, conversationMeta?.clientName, headerTitle, provider.name]);
+    return headerTitle || providerDisplayName;
+  }, [mode, conversationMeta?.clientDeleted, conversationMeta?.clientName, headerTitle, providerDisplayName]);
 
   const chatPartnerSubtitle = useMemo(() => {
     if (mode === 'provider') {
@@ -429,8 +454,8 @@ const ProviderChatModal = ({
 
   const placeholder =
     mode === 'provider'
-      ? `Répondre à ${conversationMeta?.clientName || headerTitle || 'ce client'}`
-      : `Votre message pour ${provider.name}`;
+      ? `Répondre à ${conversationMeta?.clientDeleted ? DELETED_USER_LABEL : conversationMeta?.clientName || headerTitle || 'ce client'}`
+      : `Votre message pour ${providerDisplayName}`;
 
   const canSend =
     Boolean(input.trim()) &&
@@ -438,6 +463,64 @@ const ProviderChatModal = ({
     (mode === 'client' ? Boolean(clientProfile?.contactId) : Boolean(resolvedConversationId));
 
   const showLoader = profileLoading || conversationLookupLoading;
+  const bookingClientContactId =
+    mode === 'client'
+      ? clientProfile?.contactId ?? null
+      : conversationMeta?.clientDeleted
+      ? null
+      : conversationMeta?.clientContactId ?? null;
+
+  useEffect(() => {
+    if (!bookingClientContactId || !provider.id) {
+      setSharedRequests([]);
+      return;
+    }
+    const unsubscribe = onSnapshot(
+      query(
+        collection(db, 'bookingRequests'),
+        where('providerId', '==', provider.id),
+        where('clientContactId', '==', bookingClientContactId),
+      ),
+      (snapshot) => {
+        const next = snapshot.docs.map((docSnap) => {
+          const data = docSnap.data();
+          return {
+            id: docSnap.id,
+            date: data.date,
+            slot: data.slot ?? null,
+            status: typeof data.status === 'string' ? data.status.toLowerCase() : 'pending',
+            serviceName: data.service?.name ?? null,
+          } as BookingSummary;
+        });
+        setSharedRequests(next);
+      },
+      (err) => {
+        console.error(err);
+        setSharedRequests([]);
+      },
+    );
+    return () => unsubscribe();
+  }, [bookingClientContactId, provider.id]);
+
+  const sortedRequests = useMemo(() => {
+    return [...sharedRequests].sort((a, b) => {
+      const aDate = a.date ?? '';
+      const bDate = b.date ?? '';
+      if (aDate === bDate) {
+        const aStart = a.slot?.start ?? '';
+        const bStart = b.slot?.start ?? '';
+        return aStart.localeCompare(bStart);
+      }
+      return (bDate || '').localeCompare(aDate || '');
+    });
+  }, [sharedRequests]);
+
+  const hasSharedRequests = sortedRequests.length > 0;
+  useEffect(() => {
+    if (!hasSharedRequests && requestsModalVisible) {
+      setRequestsModalVisible(false);
+    }
+  }, [hasSharedRequests, requestsModalVisible]);
 
   return (
     <SafeAreaView style={styles.screen}>
@@ -467,84 +550,172 @@ const ProviderChatModal = ({
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           keyboardVerticalOffset={20}
         >
-          <FlatList
-            ref={listRef}
-            data={messages}
-            keyExtractor={(item) => item.id}
-            contentContainerStyle={[
-              styles.messagesList,
-              messages.length === 0 && !messagesLoading && styles.messagesListEmpty,
+          <View
+            style={[
+              styles.chatBody,
+              hasSharedRequests ? styles.chatBodyWithRequests : null,
             ]}
-            renderItem={({ item }) => {
-              const isOwn = item.senderType === mode;
-              return (
-                <View
-                  style={[
-                    styles.messageBubble,
-                    isOwn ? styles.messageBubbleOwn : styles.messageBubbleOther,
-                  ]}
-                >
-                  <Text
+          >
+            {hasSharedRequests ? (
+              <TouchableOpacity
+                style={styles.requestsButton}
+                onPress={() => setRequestsModalVisible(true)}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Ionicons name="document-text-outline" size={16} color="#7B4CFF" />
+                <Text style={styles.requestsButtonText}>
+                  Voir les demandes ({sortedRequests.length})
+                </Text>
+                <Ionicons name="chevron-forward" size={16} color="#7B4CFF" />
+              </TouchableOpacity>
+            ) : null}
+            <FlatList
+              style={styles.messagesListContainer}
+              ref={listRef}
+              data={messages}
+              keyExtractor={(item) => item.id}
+              contentContainerStyle={[
+                styles.messagesList,
+                messages.length === 0 && !messagesLoading && styles.messagesListEmpty,
+              ]}
+              renderItem={({ item }) => {
+                const isOwn = item.senderType === mode;
+                return (
+                  <View
                     style={[
-                      styles.messageText,
-                      isOwn ? styles.messageTextOwn : styles.messageTextOther,
+                      styles.messageBubble,
+                      isOwn ? styles.messageBubbleOwn : styles.messageBubbleOther,
                     ]}
                   >
-                    {item.text}
-                  </Text>
-                  {item.createdAt ? (
                     <Text
                       style={[
-                        styles.messageDate,
-                        isOwn ? styles.messageDateOwn : styles.messageDateOther,
+                        styles.messageText,
+                        isOwn ? styles.messageTextOwn : styles.messageTextOther,
                       ]}
                     >
-                      {item.createdAt.toLocaleTimeString('fr-FR', {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
+                      {item.text}
                     </Text>
-                  ) : null}
-                </View>
-              );
-            }}
-            ListEmptyComponent={
-              messagesLoading ? (
-                <ActivityIndicator color={Colors.light.purple} />
-              ) : (
-                <View style={styles.emptyState}>
-                  <Ionicons name="chatbubbles-outline" size={32} color="#CBD5F5" />
-                  <Text style={styles.emptyTitle}>Démarrez la conversation</Text>
-                  <Text style={styles.emptySubtitle}>
-                    Envoyez un premier message pour discuter.
-                  </Text>
-                </View>
-              )
-            }
-          />
-          <View style={styles.inputContainer}>
-            <TextInput
-              style={styles.textInput}
-              value={input}
-              onChangeText={setInput}
-              placeholder={placeholder}
-              placeholderTextColor="#9CA3AF"
-              multiline
+                    {item.createdAt ? (
+                      <Text
+                        style={[
+                          styles.messageDate,
+                          isOwn ? styles.messageDateOwn : styles.messageDateOther,
+                        ]}
+                      >
+                        {item.createdAt.toLocaleTimeString('fr-FR', {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </Text>
+                    ) : null}
+                  </View>
+                );
+              }}
+              ListEmptyComponent={
+                messagesLoading ? (
+                  <ActivityIndicator color={Colors.light.purple} />
+                ) : (
+                  <View style={styles.emptyState}>
+                    <Ionicons name="chatbubbles-outline" size={32} color="#CBD5F5" />
+                    <Text style={styles.emptyTitle}>Démarrez la conversation</Text>
+                    <Text style={styles.emptySubtitle}>
+                      Envoyez un premier message pour discuter.
+                    </Text>
+                  </View>
+                )
+              }
             />
-            <TouchableOpacity
-              style={[styles.sendButton, !canSend && styles.sendButtonDisabled]}
-              onPress={handleSend}
-              disabled={!canSend}
-            >
-              {sending ? (
-                <ActivityIndicator color="#FFFFFF" />
-              ) : (
-                <Ionicons name="send" size={18} color="#FFFFFF" />
-              )}
-            </TouchableOpacity>
+            <View style={styles.inputContainer}>
+              <TextInput
+                style={styles.textInput}
+                value={input}
+                onChangeText={setInput}
+                placeholder={placeholder}
+                placeholderTextColor="#9CA3AF"
+                multiline
+              />
+              <TouchableOpacity
+                style={[styles.sendButton, !canSend && styles.sendButtonDisabled]}
+                onPress={handleSend}
+                disabled={!canSend}
+              >
+                {sending ? (
+                  <ActivityIndicator color="#FFFFFF" />
+                ) : (
+                  <Ionicons name="send" size={18} color="#FFFFFF" />
+                )}
+              </TouchableOpacity>
+            </View>
           </View>
         </KeyboardAvoidingView>
       )}
+
+      <Modal
+        visible={requestsModalVisible && hasSharedRequests}
+        animationType="slide"
+        onRequestClose={() => setRequestsModalVisible(false)}
+        presentationStyle="fullScreen"
+      >
+        <SafeAreaView style={styles.requestsModal}>
+          <LinearGradient
+            colors={[Colors.light.lila, Colors.light.lightBlue]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 0, y: 1 }}
+            style={StyleSheet.absoluteFillObject}
+          />
+          <View style={styles.requestsModalHeader}>
+            <TouchableOpacity
+              style={styles.requestsModalBack}
+              onPress={() => setRequestsModalVisible(false)}
+            >
+              <Ionicons name="chevron-back" size={22} color="#1F1F33" />
+            </TouchableOpacity>
+            <Text style={styles.requestsModalTitle}>Demandes</Text>
+            <View style={{ width: 44 }} />
+          </View>
+          <FlatList
+            data={sortedRequests}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={styles.requestsList}
+            renderItem={({ item }) => {
+              const status = typeof item.status === 'string' ? item.status : 'pending';
+              const statusPalette =
+                status === 'accepted' || status === 'confirmed'
+                  ? { label: 'Confirmée', color: '#15803D', bg: '#DCFCE7' }
+                  : status === 'rejected'
+                  ? { label: 'Refusée', color: '#B91C1C', bg: '#FEE2E2' }
+                  : { label: 'En attente', color: '#B45309', bg: '#FFEED3' };
+              const dateLabel = item.date
+                ? new Date(item.date).toLocaleDateString('fr-FR', {
+                    weekday: 'long',
+                    day: 'numeric',
+                    month: 'long',
+                  })
+                : 'Date à définir';
+              const slotLabel =
+                item.slot?.start && item.slot?.end
+                  ? `${item.slot.start} - ${item.slot.end}`
+                  : 'Heure à définir';
+              return (
+                <View style={styles.requestCard}>
+                  <View style={styles.requestCardRow}>
+                    <Text style={styles.requestDate}>{dateLabel}</Text>
+                    <View style={[styles.requestBadge, { backgroundColor: statusPalette.bg }]}>
+                      <Text style={[styles.requestBadgeText, { color: statusPalette.color }]}>
+                        {statusPalette.label}
+                      </Text>
+                    </View>
+                  </View>
+                  <Text style={styles.requestSlot}>{slotLabel}</Text>
+                  <Text style={styles.requestService}>
+                    {item.serviceName ?? 'Service à confirmer'}
+                  </Text>
+                </View>
+              );
+            }}
+          />
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -610,6 +781,42 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 20,
     paddingBottom: 16,
+  },
+  chatBody: {
+    flex: 1,
+    position: 'relative',
+  },
+  chatBodyWithRequests: {
+    paddingTop: 64,
+  },
+  requestsButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 16,
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    marginBottom: 12,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 10,
+    elevation: 6,
+  },
+  requestsButtonText: {
+    flex: 1,
+    marginHorizontal: 10,
+    fontWeight: '600',
+    color: '#1F1F33',
+  },
+  messagesListContainer: {
+    flex: 1,
   },
   messagesList: {
     flexGrow: 1,
@@ -690,5 +897,77 @@ const styles = StyleSheet.create({
   },
   sendButtonDisabled: {
     opacity: 0.5,
+  },
+  requestsModal: {
+    flex: 1,
+    backgroundColor: 'transparent',
+  },
+  requestsModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 24,
+    paddingTop: 40,
+    paddingBottom: 16,
+  },
+  requestsModalBack: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+  },
+  requestsModalTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#1F1F33',
+  },
+  requestsList: {
+    paddingHorizontal: 24,
+    paddingBottom: 40,
+    gap: 12,
+  },
+  requestCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    marginBottom: 12,
+  },
+  requestCardRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  requestDate: {
+    fontWeight: '700',
+    color: '#1F1F33',
+    textTransform: 'capitalize',
+  },
+  requestBadge: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  requestBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  requestSlot: {
+    fontWeight: '600',
+    color: '#4B5563',
+  },
+  requestService: {
+    marginTop: 4,
+    color: '#6B6E7F',
   },
 });

@@ -11,11 +11,15 @@ import {
   query,
   updateDoc,
   where,
+  writeBatch,
 } from 'firebase/firestore';
+import { deleteUser, EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth';
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
+  Animated,
   Image,
   KeyboardAvoidingView,
   Modal,
@@ -27,6 +31,7 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -38,6 +43,7 @@ type Props = {
 
 const MAX_DESCRIPTION = 800;
 const MAX_SERVICES = 10;
+const DELETED_PROVIDER_LABEL = 'Prestataire introuvable';
 
 type EditableService = {
   name: string;
@@ -132,6 +138,7 @@ export function PrestataireProfileModal({ visible, onClose }: Props) {
   const [documentId, setDocumentId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [companyName, setCompanyName] = useState('');
   const [description, setDescription] = useState('');
   const [services, setServices] = useState<EditableService[]>([]);
   const [photos, setPhotos] = useState<string[]>([]);
@@ -139,6 +146,12 @@ export function PrestataireProfileModal({ visible, onClose }: Props) {
   const [uploadingProfilePhoto, setUploadingProfilePhoto] = useState(false);
   const [uploadingGalleryPhoto, setUploadingGalleryPhoto] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { width } = useWindowDimensions();
+  const slideAnim = useRef(new Animated.Value(width)).current;
+  const [accountDeleting, setAccountDeleting] = useState(false);
+  const [deleteModalVisible, setDeleteModalVisible] = useState(false);
+  const [deletePassword, setDeletePassword] = useState('');
+  const [deletePasswordError, setDeletePasswordError] = useState<string | null>(null);
 
   const fetchProfile = useCallback(async () => {
     const user = auth.currentUser;
@@ -180,6 +193,7 @@ export function PrestataireProfileModal({ visible, onClose }: Props) {
           : [],
       );
       setProfilePhoto(typeof data.profilePhoto === 'string' ? data.profilePhoto : '');
+      setCompanyName(typeof data.companyName === 'string' ? data.companyName : '');
       setError(null);
     } catch (err) {
       console.error(err);
@@ -191,9 +205,15 @@ export function PrestataireProfileModal({ visible, onClose }: Props) {
 
   useEffect(() => {
     if (visible) {
+      slideAnim.setValue(width);
       fetchProfile();
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 260,
+        useNativeDriver: true,
+      }).start();
     }
-  }, [visible, fetchProfile]);
+  }, [visible, fetchProfile, slideAnim, width]);
 
   const remainingChars = useMemo(
     () => `${description.length}/${MAX_DESCRIPTION} caractères`,
@@ -310,6 +330,7 @@ export function PrestataireProfileModal({ visible, onClose }: Props) {
         return;
       }
       await updateDoc(doc(db, 'contacts', documentId), {
+        companyName: companyName.trim(),
         description,
         services: normalizedServices.map((service) => ({
           name: service.name,
@@ -329,41 +350,142 @@ export function PrestataireProfileModal({ visible, onClose }: Props) {
     }
   };
 
-  const handleSignOut = async () => {
-    try {
-      await auth.signOut();
-      onClose();
-      router.replace('..');
-    } catch (err) {
-      console.error(err);
-      setError('Impossible de vous déconnecter pour le moment.');
+  const executeAccountDeletion = useCallback(
+    async (currentPassword: string) => {
+      if (!documentId) {
+        setError('Impossible de supprimer votre compte pour le moment.');
+        return;
+      }
+      if (!currentPassword.trim()) {
+        setDeletePasswordError('Veuillez entrer votre mot de passe.');
+        return;
+      }
+      setAccountDeleting(true);
+      try {
+        const scrubbedData = {
+          companyName: DELETED_PROVIDER_LABEL,
+          description: '',
+          services: [],
+          gallery: [],
+          profilePhoto: '',
+          phone: '',
+          responseTime: '',
+          cities: [],
+          availability: [],
+          accountDeleted: true,
+          deletedAt: new Date(),
+          pricing: deleteField(),
+          weeklySchedule: deleteField(),
+        };
+        await updateDoc(doc(db, 'contacts', documentId), scrubbedData);
+        const conversationsSnapshot = await getDocs(
+          query(collection(db, 'conversations'), where('providerId', '==', documentId)),
+        );
+        if (!conversationsSnapshot.empty) {
+          const batch = writeBatch(db);
+          conversationsSnapshot.forEach((conversationDoc) => {
+            batch.update(conversationDoc.ref, {
+              providerName: DELETED_PROVIDER_LABEL,
+              providerCompanyName: DELETED_PROVIDER_LABEL,
+              providerImage: null,
+              providerDeleted: true,
+            });
+          });
+          await batch.commit();
+        }
+        setCompanyName('');
+        setDescription('');
+        setServices([]);
+        setPhotos([]);
+        setProfilePhoto('');
+        setDeletePassword('');
+        const currentUser = auth.currentUser;
+        if (!currentUser || !currentUser.email) {
+          throw new Error('Session invalide. Veuillez vous reconnecter.');
+        }
+        try {
+          const credential = EmailAuthProvider.credential(currentUser.email, currentPassword.trim());
+          await reauthenticateWithCredential(currentUser, credential);
+        } catch (reauthError) {
+          console.error(reauthError);
+          setDeletePasswordError('Mot de passe incorrect. Veuillez réessayer.');
+          setAccountDeleting(false);
+          return;
+        }
+        try {
+          await deleteUser(currentUser);
+        } catch (deleteAuthError) {
+          console.error(deleteAuthError);
+          setError('Impossible de supprimer votre compte utilisateur pour le moment.');
+          setAccountDeleting(false);
+          return;
+        }
+        await auth.signOut();
+        setDeleteModalVisible(false);
+        Alert.alert('Compte supprimé', 'Vos informations personnelles ont été supprimées.');
+        router.replace('/auth/login');
+      } catch (err) {
+        console.error(err);
+        setError('Impossible de supprimer votre compte pour le moment.');
+      } finally {
+        setAccountDeleting(false);
+      }
+    },
+    [documentId, router],
+  );
+
+  const handleDeleteAccount = useCallback(() => {
+    if (!documentId || saving || accountDeleting) {
+      if (!documentId) {
+        setError('Impossible de supprimer votre compte pour le moment.');
+      }
+      return;
     }
-  };
+    setDeletePassword('');
+    setDeletePasswordError(null);
+    setDeleteModalVisible(true);
+  }, [accountDeleting, documentId, saving]);
+
+  const confirmDeleteAccount = useCallback(() => {
+    if (accountDeleting) return;
+    if (!deletePassword.trim()) {
+      setDeletePasswordError('Veuillez entrer votre mot de passe.');
+      return;
+    }
+    setDeletePasswordError(null);
+    executeAccountDeletion(deletePassword.trim());
+  }, [accountDeleting, deletePassword, executeAccountDeletion]);
 
   return (
-    <Modal
-      visible={visible}
-      animationType="slide"
-      presentationStyle="fullScreen"
-      onRequestClose={onClose}
-    >
-      <SafeAreaView style={styles.overlay}>
-        <LinearGradient
-          colors={[Colors.light.lila, Colors.light.lightBlue]}
-          start={{ x: 0.5, y: 0 }}
-          end={{ x: 0.5, y: 1 }}
-          style={StyleSheet.absoluteFillObject}
-        />
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 24 : 0}
-        >
+    <>
+      <Modal
+        visible={visible}
+        animationType="none"
+        presentationStyle="fullScreen"
+        onRequestClose={onClose}
+      >
+        <View style={styles.fullScreen}>
+          <Animated.View
+            style={[StyleSheet.absoluteFillObject, { transform: [{ translateX: slideAnim }] }]}
+          >
+            <SafeAreaView style={styles.overlay}>
+              <LinearGradient
+                colors={[Colors.light.lila, Colors.light.lightBlue]}
+                start={{ x: 0.5, y: 0 }}
+                end={{ x: 0.5, y: 1 }}
+                style={StyleSheet.absoluteFillObject}
+              />
+              <KeyboardAvoidingView
+                style={{ flex: 1 }}
+                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                keyboardVerticalOffset={Platform.OS === 'ios' ? 24 : 0}
+              >
           <View style={styles.headerRow}>
-            <Text style={styles.headerTitle}>Profil & Services</Text>
-            <Pressable onPress={onClose} style={styles.headerClose}>
-              <Ionicons name="close" size={20} color="#1F1F33" />
+            <Pressable onPress={onClose} style={styles.backButton}>
+              <Ionicons name="chevron-back" size={22} color="#1F1F33" />
             </Pressable>
+            <Text style={styles.headerTitle}>Profil & Services</Text>
+            <View style={styles.headerSpacer} />
           </View>
 
           {loading ? (
@@ -376,6 +498,17 @@ export function PrestataireProfileModal({ visible, onClose }: Props) {
               contentContainerStyle={styles.scrollContent}
               showsVerticalScrollIndicator={false}
             >
+              <View style={styles.card}>
+                <Text style={styles.sectionTitle}>Nom de la société</Text>
+                <TextInput
+                  placeholder="Entrez le nom de votre entreprise"
+                  placeholderTextColor="#A0A1AF"
+                  value={companyName}
+                  onChangeText={setCompanyName}
+                  style={styles.companyInput}
+                />
+              </View>
+
               <View style={styles.card}>
                 <Text style={styles.sectionTitle}>Description</Text>
                 <TextInput
@@ -559,18 +692,87 @@ export function PrestataireProfileModal({ visible, onClose }: Props) {
                   )}
                 </LinearGradient>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.logoutButton} onPress={handleSignOut}>
-                <Text style={styles.logoutLabel}>Se déconnecter</Text>
+              <TouchableOpacity
+                style={[
+                  styles.deleteAccountButton,
+                  (saving || accountDeleting) && styles.deleteAccountButtonDisabled,
+                ]}
+                onPress={handleDeleteAccount}
+                disabled={saving || accountDeleting}
+              >
+                {accountDeleting ? (
+                  <ActivityIndicator color={Colors.light.pink} />
+                ) : (
+                  <Text style={styles.deleteAccountLabel}>Supprimer le compte</Text>
+                )}
               </TouchableOpacity>
             </ScrollView>
           )}
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+            </KeyboardAvoidingView>
+          </SafeAreaView>
+        </Animated.View>
+        {deleteModalVisible && (
+          <View style={styles.deleteModalBackdrop}>
+            <View style={styles.deleteModalCard}>
+              <Text style={styles.deleteModalTitle}>Confirmer la suppression</Text>
+              <Text style={styles.deleteModalSubtitle}>
+                Entrez votre mot de passe pour confirmer la suppression de votre compte prestataire.
+              </Text>
+              <TextInput
+                style={styles.deleteModalInput}
+                secureTextEntry
+                placeholder="Mot de passe"
+                value={deletePassword}
+                onChangeText={(value) => {
+                  setDeletePassword(value);
+                  if (deletePasswordError) {
+                    setDeletePasswordError(null);
+                  }
+                }}
+                editable={!accountDeleting}
+              />
+              {deletePasswordError ? <Text style={styles.deleteModalError}>{deletePasswordError}</Text> : null}
+              <View style={styles.deleteModalActions}>
+                <TouchableOpacity
+                  style={[styles.deleteModalButton, styles.cancelDeleteButton]}
+                  onPress={() => {
+                    if (!accountDeleting) {
+                      setDeleteModalVisible(false);
+                    }
+                  }}
+                  disabled={accountDeleting}
+                >
+                  <Text style={styles.cancelDeleteLabel}>Annuler</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.deleteModalButton,
+                    styles.confirmDeleteButton,
+                    accountDeleting && styles.deleteAccountButtonDisabled,
+                  ]}
+                  onPress={confirmDeleteAccount}
+                  disabled={accountDeleting}
+                >
+                  {accountDeleting ? (
+                    <ActivityIndicator color="#FFFFFF" />
+                  ) : (
+                    <Text style={styles.confirmDeleteLabel}>Supprimer</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        )}
+      </View>
     </Modal>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
+  fullScreen: {
+    flex: 1,
+  },
   overlay: {
     flex: 1,
   },
@@ -579,13 +781,31 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 24,
-    paddingTop: 32,
-    paddingBottom: 16,
+    paddingTop: 36,
+    paddingBottom: 18,
+  },
+  backButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2,
   },
   headerTitle: {
+    flex: 1,
+    textAlign: 'center',
     fontSize: 22,
-    fontWeight: '700',
+    fontWeight: '800',
     color: '#1F1F33',
+  },
+  headerSpacer: {
+    width: 44,
   },
   headerClose: {
     padding: 6,
@@ -722,6 +942,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  companyInput: {
+    marginTop: 12,
+    borderRadius: 16,
+    backgroundColor: '#F7F8FC',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    color: '#1F1F33',
+  },
   profileActions: {
     flex: 1,
     gap: 10,
@@ -854,17 +1082,86 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontSize: 16,
   },
-  logoutButton: {
-    marginTop: 12,
-    paddingVertical: 14,
-    borderRadius: 16,
+  deleteAccountButton: {
+    marginTop: 16,
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: '#E0E2EC',
+    borderColor: '#FCA5A5',
+    paddingVertical: 14,
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
   },
-  logoutLabel: {
-    color: '#B62323',
+  deleteAccountButtonDisabled: {
+    opacity: 0.6,
+  },
+  deleteAccountLabel: {
+    color: '#B91C1C',
+    fontWeight: '700',
+  },
+  deleteModalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  deleteModalCard: {
+    width: '100%',
+    maxWidth: 360,
+    borderRadius: 24,
+    backgroundColor: '#FFFFFF',
+    padding: 24,
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 12,
+  },
+  deleteModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1F1F33',
+  },
+  deleteModalSubtitle: {
+    marginTop: 8,
+    color: '#4B5563',
+  },
+  deleteModalInput: {
+    marginTop: 16,
+    borderRadius: 16,
+    backgroundColor: '#F5F6FB',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  deleteModalError: {
+    color: Colors.light.pink,
+    marginTop: 8,
+  },
+  deleteModalActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 12,
+    marginTop: 20,
+  },
+  deleteModalButton: {
+    borderRadius: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+  },
+  cancelDeleteButton: {
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#FFFFFF',
+  },
+  confirmDeleteButton: {
+    backgroundColor: '#B91C1C',
+  },
+  cancelDeleteLabel: {
+    color: '#374151',
     fontWeight: '600',
+  },
+  confirmDeleteLabel: {
+    color: '#FFFFFF',
+    fontWeight: '700',
   },
 });

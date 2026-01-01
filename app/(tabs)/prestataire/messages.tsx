@@ -21,14 +21,16 @@ import {
   FlatList,
   Image,
   Modal,
-  SafeAreaView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import ProviderChatScreen from '@/components/ProviderChatModal';
+
+const DELETED_USER_LABEL = 'Utilisateur introuvable';
 
  type ConversationSummary = {
   id: string;
@@ -38,6 +40,7 @@ import ProviderChatScreen from '@/components/ProviderChatModal';
   lastMessageAt: Date | null;
   providerView: Provider;
   unread: boolean;
+  clientDeleted?: boolean;
 };
 
 const formatTimestamp = (value: Date | null) => {
@@ -54,7 +57,8 @@ const formatTimestamp = (value: Date | null) => {
 
 const toProvider = (data: Record<string, any>): Provider => ({
   id: data.providerId ?? 'unknown',
-  name: data.providerName ?? 'Prestataire SpeedEvent',
+  name: data.providerCompanyName ?? data.providerName ?? 'Prestataire SpeedEvent',
+  companyName: data.providerCompanyName ?? data.providerName ?? undefined,
   category: data.providerCategory ?? 'Prestataire',
   city: data.providerCity ?? 'Belgique',
   rating: '5.0',
@@ -72,6 +76,7 @@ const toProvider = (data: Record<string, any>): Provider => ({
 });
 
 export default function PrestataireMessagesScreen() {
+  const insets = useSafeAreaInsets();
   const [providerContactId, setProviderContactId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -126,14 +131,19 @@ export default function PrestataireMessagesScreen() {
       (snapshot) => {
         const next = snapshot.docs.map((docSnap) => {
           const data = docSnap.data();
+          const clientDeleted = Boolean(data.clientDeleted);
+          const clientDisplayName = clientDeleted
+            ? DELETED_USER_LABEL
+            : data.clientName ?? 'Client SpeedEvent';
           return {
             id: docSnap.id,
-            clientName: data.clientName ?? 'Client SpeedEvent',
+            clientName: clientDisplayName,
             clientAvatar: data.clientAvatar,
             lastMessage: data.lastMessage ?? 'Nouvelle conversation',
             lastMessageAt: data.lastMessageAt?.toDate?.() ?? null,
             providerView: toProvider(data),
             unread: Boolean(data.unreadByProvider),
+            clientDeleted,
           } as ConversationSummary;
         });
         setConversations(next);
@@ -188,17 +198,22 @@ export default function PrestataireMessagesScreen() {
 
   const header = useMemo(
     () => (
-      <LinearGradient colors={[Colors.light.pink, Colors.light.purple]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.headerGradient}>
+      <LinearGradient
+        colors={[Colors.light.pink, Colors.light.purple]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={[styles.headerGradient, { paddingTop: insets.top + 24 }]}
+      >
         <Text style={styles.headerTitle}>Messagerie</Text>
         <Text style={styles.headerSubtitle}>Répondez rapidement aux clients intéressés.</Text>
       </LinearGradient>
     ),
-    [],
+    [insets.top],
   );
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.loaderScreen}>
+      <SafeAreaView style={styles.loaderScreen} edges={['left', 'right', 'bottom']}>
         <ActivityIndicator color={Colors.light.purple} />
         <Text style={styles.loaderText}>Chargement de vos conversations…</Text>
       </SafeAreaView>
@@ -207,14 +222,14 @@ export default function PrestataireMessagesScreen() {
 
   if (error) {
     return (
-      <SafeAreaView style={styles.loaderScreen}>
+      <SafeAreaView style={styles.loaderScreen} edges={['left', 'right', 'bottom']}>
         <Text style={styles.errorText}>{error}</Text>
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={styles.screen}>
+    <SafeAreaView style={styles.screen} edges={['left', 'right', 'bottom']}>
       {header}
       {conversations.length === 0 ? (
         <View style={styles.emptyCard}>
@@ -268,18 +283,22 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   headerGradient: {
-    margin: 20,
-    borderRadius: 24,
-    padding: 20,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+    paddingHorizontal: 24,
+    paddingBottom: 28,
+    marginBottom: 18,
   },
   headerTitle: {
     color: '#FFFFFF',
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: '800',
+    textAlign: 'center',
   },
   headerSubtitle: {
-    color: '#F1F5F9',
-    marginTop: 6,
+    color: '#F8FAFC',
+    marginTop: 8,
+    textAlign: 'center',
   },
   emptyCard: {
     marginHorizontal: 20,

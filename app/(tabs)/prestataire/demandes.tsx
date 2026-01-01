@@ -3,12 +3,14 @@ import { auth, db } from '@/fireBaseConfig';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
+  addDoc,
   collection,
   doc,
   getDocs,
   limit,
   onSnapshot,
   query,
+  serverTimestamp,
   updateDoc,
   where,
 } from 'firebase/firestore';
@@ -17,22 +19,26 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
-  SafeAreaView,
+  Modal,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type BookingRequest = {
   id: string;
   clientName: string;
+  clientContactId?: string | null;
   date: string;
   slot: { start: string; end: string };
   service?: { name?: string | null; durationHours?: number | null };
   status?: string;
   location?: string;
   budget?: number | string | null;
+  address?: string;
 };
 
 const statusStyles = {
@@ -52,11 +58,16 @@ const filterOptions: { key: 'all' | 'pending' | 'accepted' | 'rejected'; label: 
 ];
 
 export default function PrestataireDemandesScreen() {
+  const insets = useSafeAreaInsets();
   const [requests, setRequests] = useState<BookingRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [providerId, setProviderId] = useState<string | null>(null);
+  const [providerProfile, setProviderProfile] = useState<Record<string, any> | null>(null);
   const [filter, setFilter] = useState<'all' | 'pending' | 'accepted' | 'rejected'>('all');
+  const [rejectModalVisible, setRejectModalVisible] = useState(false);
+  const [rejectReason, setRejectReason] = useState('');
+  const [rejectTarget, setRejectTarget] = useState<BookingRequest | null>(null);
 
   useEffect(() => {
     let unsubscribe: (() => void) | null = null;
@@ -81,14 +92,17 @@ export default function PrestataireDemandesScreen() {
           setLoading(false);
           return;
         }
-        const docId = profileSnapshot.docs[0].id;
+        const docSnap = profileSnapshot.docs[0];
+        const docId = docSnap.id;
         setProviderId(docId);
+        setProviderProfile(docSnap.data());
         const demandesQuery = query(collection(db, 'bookingRequests'), where('providerId', '==', docId));
         unsubscribe = onSnapshot(demandesQuery, (snapshot) => {
           const next = snapshot.docs.map((docSnap) => {
             const data = docSnap.data();
             return {
               id: docSnap.id,
+              clientContactId: data.clientContactId ?? null,
               clientName:
                 data.clientName ||
                 data.clientEmail ||
@@ -100,6 +114,10 @@ export default function PrestataireDemandesScreen() {
               status: typeof data.status === 'string' ? data.status.toLowerCase() : 'pending',
               location: data.location ?? data.city ?? 'Lieu à définir',
               budget: data.budget ?? data.price ?? null,
+              address:
+                typeof data.address === 'string' && data.address.trim().length > 0
+                  ? data.address.trim()
+                  : null,
             } as BookingRequest;
           });
           setRequests(next);
@@ -115,26 +133,167 @@ export default function PrestataireDemandesScreen() {
     return () => unsubscribe?.();
   }, []);
 
+  const ensureConversationWithClient = useCallback(
+    async (clientContactId: string | null, clientName: string) => {
+      if (!clientContactId || !providerId) return null;
+      const existing = await getDocs(
+        query(
+          collection(db, 'conversations'),
+          where('clientContactId', '==', clientContactId),
+          where('providerId', '==', providerId),
+          limit(1),
+        ),
+      );
+      if (!existing.empty) {
+        return existing.docs[0].id;
+      }
+      const profile = providerProfile ?? {};
+      const payload: Record<string, any> = {
+        clientContactId,
+        clientName,
+        clientDeleted: false,
+        providerId,
+        providerName:
+          profile.displayName ||
+          profile.businessName ||
+          profile.name ||
+          profile.companyName ||
+          'Prestataire SpeedEvent',
+        providerCompanyName: profile.companyName || null,
+        providerCategory: profile.category || profile.specialty || 'Prestataire',
+        providerCity: profile.city || profile.location || 'Belgique',
+        providerPrice: profile.price || 'Tarif sur demande',
+        providerImage: profile.profilePhoto || null,
+        providerResponseTime: profile.responseTime || 'Répond généralement sous 24h',
+        providerDescription: profile.description || '',
+        providerServices: Array.isArray(profile.services) ? profile.services : [],
+        createdAt: serverTimestamp(),
+        lastMessage: '',
+        lastMessageAt: null,
+        unreadByClient: false,
+        unreadByProvider: false,
+      };
+      const docRef = await addDoc(collection(db, 'conversations'), payload);
+      return docRef.id;
+    },
+    [providerId, providerProfile],
+  );
+
+  const sendConversationMessage = useCallback(
+    async (request: BookingRequest, text: string) => {
+      if (!providerId || !request.clientContactId) return;
+      try {
+        const conversationId = await ensureConversationWithClient(
+          request.clientContactId,
+          request.clientName,
+        );
+        if (!conversationId) return;
+        await addDoc(collection(db, 'conversations', conversationId, 'messages'), {
+          text,
+          senderType: 'provider',
+          senderId: providerId,
+          createdAt: serverTimestamp(),
+        });
+        await updateDoc(doc(db, 'conversations', conversationId), {
+          lastMessage: text,
+          lastMessageAt: serverTimestamp(),
+          lastMessageSenderType: 'provider',
+          unreadByClient: true,
+          unreadByProvider: false,
+        });
+      } catch (messageError) {
+        console.error('Impossible denvoyer le message automatique', messageError);
+      }
+    },
+    [ensureConversationWithClient, providerId],
+  );
+
   const handleUpdateStatus = useCallback(
     async (request: BookingRequest, nextStatus: 'accepted' | 'rejected') => {
       if (!providerId) return;
       try {
-        await updateDoc(doc(db, 'bookingRequests', request.id), {
-          status: nextStatus,
-          updatedAt: new Date(),
-        });
         if (nextStatus === 'accepted') {
+          const activeAccepted = requests.filter(
+            (existing) =>
+              existing.status === 'accepted' ||
+              existing.status === 'confirmed',
+          ).length;
+          if (
+            providerProfile?.subscriptionPlan === 'free' &&
+            activeAccepted >= 3
+          ) {
+            Alert.alert(
+              'Limite atteinte',
+              'Votre compte gratuit est limité à 3 rendez-vous acceptés. Passez au plan Premium pour en accepter davantage.',
+            );
+            return;
+          }
+          await updateDoc(doc(db, 'bookingRequests', request.id), {
+            status: nextStatus,
+            updatedAt: new Date(),
+          });
+          const dateLabel = new Date(request.date).toLocaleDateString('fr-FR', {
+            weekday: 'long',
+            day: 'numeric',
+            month: 'long',
+          });
+          const slotLabel = `${request.slot.start} - ${request.slot.end}`;
+          const message = `Le prestataire a accepté votre demande pour le ${dateLabel} (${slotLabel}).`;
+          await sendConversationMessage(request, message);
           Alert.alert('Demande acceptée', 'Le créneau est confirmé et devient indisponible.');
         } else {
-          Alert.alert('Demande refusée', 'Le client sera notifié du refus.');
+          setRejectTarget(request);
+          setRejectReason('');
+          setRejectModalVisible(true);
         }
       } catch (err) {
         console.error(err);
         Alert.alert('Erreur', "Impossible de mettre à jour la demande. Réessayez plus tard.");
       }
     },
-    [providerId],
+    [providerId, providerProfile?.subscriptionPlan, requests, sendConversationMessage],
   );
+
+  const handleConfirmRejection = useCallback(async () => {
+    if (!rejectTarget || !providerId) {
+      setRejectModalVisible(false);
+      return;
+    }
+    const reason = rejectReason.trim();
+    const fallback =
+      reason.length > 0
+        ? reason
+        : "Le prestataire a refusé votre demande pour ce créneau.";
+    try {
+      await updateDoc(doc(db, 'bookingRequests', rejectTarget.id), {
+        status: 'rejected',
+        rejectionReason: reason || null,
+        updatedAt: new Date(),
+      });
+      const dateLabel = new Date(rejectTarget.date).toLocaleDateString('fr-FR', {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long',
+      });
+      const slotLabel = `${rejectTarget.slot.start} - ${rejectTarget.slot.end}`;
+      const message = `Le prestataire a refusé votre demande du ${dateLabel} (${slotLabel}). Motif : ${fallback}`;
+      await sendConversationMessage(rejectTarget, message);
+      Alert.alert('Demande refusée', 'Le client sera notifié du refus.');
+    } catch (err) {
+      console.error(err);
+      Alert.alert('Erreur', "Impossible de refuser la demande. Réessayez plus tard.");
+    } finally {
+      setRejectModalVisible(false);
+      setRejectTarget(null);
+      setRejectReason('');
+    }
+  }, [providerId, rejectReason, rejectTarget, sendConversationMessage]);
+
+  const handleCancelRejection = useCallback(() => {
+    setRejectModalVisible(false);
+    setRejectTarget(null);
+    setRejectReason('');
+  }, []);
 
   const counts = useMemo(
     () =>
@@ -167,7 +326,9 @@ export default function PrestataireDemandesScreen() {
       const serviceDetails = [item.service?.name, item.service?.durationHours ? `${item.service.durationHours} h` : null]
         .filter(Boolean)
         .join(' • ');
-      const palette = statusStyles[(item.status as StatusKey) ?? 'pending'] ?? statusStyles.pending;
+      const statusKey = (item.status as StatusKey) ?? 'pending';
+      const palette = statusStyles[statusKey] ?? statusStyles.pending;
+      const showActions = statusKey !== 'accepted' && statusKey !== 'confirmed' && statusKey !== 'rejected';
       return (
         <View style={styles.card}>
           <View style={styles.cardHeader}>
@@ -181,7 +342,7 @@ export default function PrestataireDemandesScreen() {
                 })}
               </Text>
             </View>
-            <View style={[styles.statusBadge, { backgroundColor: palette.bg }]}> {/**/}
+            <View style={[styles.statusBadge, { backgroundColor: palette.bg }]}>
               <Text style={[styles.statusBadgeText, { color: palette.text }]}>{palette.label}</Text>
             </View>
           </View>
@@ -193,7 +354,7 @@ export default function PrestataireDemandesScreen() {
           </View>
           <View style={styles.infoRow}>
             <Ionicons name="location-outline" size={16} color="#6B6B7B" />
-            <Text style={styles.infoText}>{item.location}</Text>
+            <Text style={styles.infoText}>{item.address || 'Lieu à définir'}</Text>
           </View>
           {item.budget ? (
             <View style={styles.infoRow}>
@@ -208,24 +369,26 @@ export default function PrestataireDemandesScreen() {
             <Ionicons name="briefcase-outline" size={16} color="#6B6B7B" />
             <Text style={styles.infoText}>{serviceDetails || 'Service à confirmer'}</Text>
           </View>
-          <View style={styles.actionRow}>
-            <TouchableOpacity
-              style={[styles.actionButton, styles.rejectButton]}
-              onPress={() => handleUpdateStatus(item, 'rejected')}
-            >
-              <Text style={styles.rejectLabel}>Refuser</Text>
-            </TouchableOpacity>
-            <LinearGradient
-              colors={[Colors.light.pink, Colors.light.purple]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={[styles.actionButton, styles.acceptButton]}
-            >
-              <TouchableOpacity style={styles.acceptTouchable} onPress={() => handleUpdateStatus(item, 'accepted')}>
-                <Text style={styles.acceptLabel}>Accepter</Text>
+          {showActions ? (
+            <View style={styles.actionRow}>
+              <TouchableOpacity
+                style={[styles.actionButton, styles.rejectButton]}
+                onPress={() => handleUpdateStatus(item, 'rejected')}
+              >
+                <Text style={styles.rejectLabel}>Refuser</Text>
               </TouchableOpacity>
-            </LinearGradient>
-          </View>
+              <TouchableOpacity style={[styles.actionButton, styles.acceptButton]} onPress={() => handleUpdateStatus(item, 'accepted')}>
+                <LinearGradient
+                  colors={[Colors.light.pink, Colors.light.purple]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.acceptGradient}
+                >
+                  <Text style={styles.acceptLabel}>Accepter</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+          ) : null}
         </View>
       );
     },
@@ -234,30 +397,32 @@ export default function PrestataireDemandesScreen() {
 
   const header = (
     <View style={styles.headerWrapper}>
-      <LinearGradient colors={[Colors.light.pink, Colors.light.purple]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.headerGradient}>
-        <View style={styles.headerRow}>
-          <Ionicons name="chevron-back" size={22} color="#FFFFFF" />
-          <Text style={styles.headerTitle}>Demandes clients</Text>
-          <View style={{ width: 22 }} />
-        </View>
-        <View style={styles.statsRow}>
-          <View style={styles.statCard}>
-            <Ionicons name="time-outline" size={20} color="#F97316" />
-            <Text style={styles.statValue}>{counts.pending}</Text>
-            <Text style={styles.statLabel}>En attente</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Ionicons name="checkmark-circle" size={20} color="#22C55E" />
-            <Text style={styles.statValue}>{counts.accepted}</Text>
-            <Text style={styles.statLabel}>Confirmées</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Ionicons name="close-circle" size={20} color="#F87171" />
-            <Text style={styles.statValue}>{counts.rejected}</Text>
-            <Text style={styles.statLabel}>Refusées</Text>
-          </View>
-        </View>
+      <LinearGradient
+        colors={[Colors.light.pink, Colors.light.purple]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={[styles.headerGradient, { paddingTop: insets.top + 24 }]}
+      >
+        <Text style={styles.headerTitle}>Demandes clients</Text>
+        <Text style={styles.headerSubtitle}>Gérez vos demandes en attente ou confirmées.</Text>
       </LinearGradient>
+      <View style={styles.statsRow}>
+        <View style={styles.statCard}>
+          <Ionicons name="time-outline" size={20} color="#F97316" />
+          <Text style={styles.statValue}>{counts.pending}</Text>
+          <Text style={styles.statLabel}>En attente</Text>
+        </View>
+        <View style={styles.statCard}>
+          <Ionicons name="checkmark-circle" size={20} color="#22C55E" />
+          <Text style={styles.statValue}>{counts.accepted}</Text>
+          <Text style={styles.statLabel}>Confirmées</Text>
+        </View>
+        <View style={styles.statCard}>
+          <Ionicons name="close-circle" size={20} color="#F87171" />
+          <Text style={styles.statValue}>{counts.rejected}</Text>
+          <Text style={styles.statLabel}>Refusées</Text>
+        </View>
+      </View>
       <View style={styles.filtersRow}>
         {filterOptions.map((chip) => {
           const isActive = filter === chip.key;
@@ -285,7 +450,7 @@ export default function PrestataireDemandesScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.loaderScreen}>
+      <SafeAreaView style={styles.loaderScreen} edges={['left', 'right', 'bottom']}>
         <ActivityIndicator color={Colors.light.purple} />
         <Text style={styles.loadingText}>Chargement des demandes…</Text>
       </SafeAreaView>
@@ -294,19 +459,20 @@ export default function PrestataireDemandesScreen() {
 
   if (error) {
     return (
-      <SafeAreaView style={styles.loaderScreen}>
+      <SafeAreaView style={styles.loaderScreen} edges={['left', 'right', 'bottom']}>
         <Text style={styles.errorText}>{error}</Text>
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={styles.screen}>
+    <>
+    <SafeAreaView style={styles.screen} edges={['left', 'right', 'bottom']}>
+      {header}
       <FlatList
         data={filteredRequests}
         keyExtractor={(item) => item.id}
         renderItem={renderRequest}
-        ListHeaderComponent={header}
         contentContainerStyle={styles.listContent}
         ListEmptyComponent={
           <View style={styles.emptyCard}>
@@ -315,8 +481,42 @@ export default function PrestataireDemandesScreen() {
           </View>
         }
         showsVerticalScrollIndicator={false}
+        style={styles.list}
       />
     </SafeAreaView>
+
+      <Modal
+        visible={rejectModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={handleCancelRejection}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.rejectModalCard}>
+            <Text style={styles.rejectModalTitle}>Raison du refus</Text>
+            <Text style={styles.rejectModalDescription}>
+              Expliquez brièvement pourquoi vous ne pouvez pas accepter cette demande.
+            </Text>
+            <TextInput
+              style={styles.rejectInput}
+              placeholder="Ex: Déjà réservé à cette date"
+              placeholderTextColor="#9CA3AF"
+              value={rejectReason}
+              onChangeText={setRejectReason}
+              multiline
+            />
+            <View style={styles.rejectActions}>
+              <TouchableOpacity style={styles.rejectCancel} onPress={handleCancelRejection}>
+                <Text style={styles.rejectCancelText}>Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.rejectConfirm} onPress={handleConfirmRejection}>
+                <Text style={styles.rejectConfirmText}>Envoyer</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </>
   );
 }
 
@@ -332,30 +532,32 @@ const styles = StyleSheet.create({
     backgroundColor: '#F7F7FB',
   },
   headerWrapper: {
-    paddingHorizontal: 20,
     paddingBottom: 20,
   },
   headerGradient: {
-    borderRadius: 28,
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 24,
-    marginBottom: 16,
-  },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+    paddingHorizontal: 24,
+    paddingTop: 36,
+    paddingBottom: 28,
     marginBottom: 18,
   },
   headerTitle: {
     color: '#FFFFFF',
-    fontSize: 20,
-    fontWeight: '700',
+    fontSize: 24,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  headerSubtitle: {
+    marginTop: 8,
+    color: '#F8FAFC',
+    textAlign: 'center',
   },
   statsRow: {
     flexDirection: 'row',
     gap: 12,
+    marginHorizontal: 20,
+    marginBottom: 16,
   },
   statCard: {
     flex: 1,
@@ -378,6 +580,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 12,
+    justifyContent: 'center',
+    paddingHorizontal: 16,
   },
   filterChip: {
     paddingHorizontal: 16,
@@ -402,6 +606,9 @@ const styles = StyleSheet.create({
   listContent: {
     paddingBottom: 24,
     gap: 16,
+  },
+  list: {
+    flex: 1,
   },
   card: {
     marginHorizontal: 20,
@@ -477,11 +684,15 @@ const styles = StyleSheet.create({
   },
   acceptButton: {
     padding: 0,
+    borderRadius: 16,
+    overflow: 'hidden',
   },
-  acceptTouchable: {
+  acceptGradient: {
     width: '100%',
     alignItems: 'center',
+    justifyContent: 'center',
     paddingVertical: 12,
+    borderRadius: 16,
   },
   acceptLabel: {
     color: '#FFFFFF',
@@ -520,5 +731,61 @@ const styles = StyleSheet.create({
   errorText: {
     color: Colors.light.pink,
     textAlign: 'center',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  rejectModalCard: {
+    width: '100%',
+    borderRadius: 24,
+    padding: 20,
+    backgroundColor: '#FFFFFF',
+    gap: 12,
+  },
+  rejectModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1F1F33',
+  },
+  rejectModalDescription: {
+    fontSize: 14,
+    color: '#6B6B7B',
+  },
+  rejectInput: {
+    minHeight: 100,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E4E4F0',
+    padding: 12,
+    textAlignVertical: 'top',
+    color: '#1F1F33',
+  },
+  rejectActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 12,
+    marginTop: 8,
+  },
+  rejectCancel: {
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+  },
+  rejectCancelText: {
+    color: '#6B6B7B',
+    fontWeight: '600',
+  },
+  rejectConfirm: {
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    borderRadius: 16,
+    backgroundColor: Colors.light.purple,
+  },
+  rejectConfirmText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
   },
 });

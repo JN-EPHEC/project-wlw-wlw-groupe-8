@@ -1,8 +1,8 @@
-import ClientHeroHeader from '@/components/ClientHeroHeader';
-import ClientProfile from '@/components/ClientProfile';
+import { PrestataireProfileModal } from '@/components/PrestataireProfileModal';
 import NotificationsModal from '@/components/NotificationsModal';
 import PrivacyModal from '@/components/PrivacyModal';
 import SecurityModal from '@/components/SecurityModal';
+import PrestataireSubscriptionModal from '@/components/PrestataireSubscriptionModal';
 import SupportModal from '@/components/Support';
 import { Colors } from '@/constants/Colors';
 import { auth } from '@/fireBaseConfig';
@@ -10,15 +10,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useState } from 'react';
-import {
-  Alert,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type SettingItem = {
   icon: string;
@@ -26,13 +19,15 @@ type SettingItem = {
   action?: () => void;
 };
 
-export default function ClientSettingsScreen() {
+export default function PrestataireSettingsScreen() {
   const router = useRouter();
   const [profileModalVisible, setProfileModalVisible] = useState(false);
+  const [subscriptionModalVisible, setSubscriptionModalVisible] = useState(false);
   const [notificationsModalVisible, setNotificationsModalVisible] = useState(false);
-  const [supportModalVisible, setSupportModalVisible] = useState(false);
   const [privacyModalVisible, setPrivacyModalVisible] = useState(false);
   const [securityModalVisible, setSecurityModalVisible] = useState(false);
+  const [supportModalVisible, setSupportModalVisible] = useState(false);
+  const insets = useSafeAreaInsets();
 
   const handleLogout = useCallback(async () => {
     try {
@@ -47,25 +42,22 @@ export default function ClientSettingsScreen() {
   return (
     <SafeAreaView style={styles.screen} edges={['left', 'right', 'bottom']}>
       <LinearGradient
-        colors={[Colors.light.lila, Colors.light.lightBlue]}
+        colors={[Colors.light.pink, Colors.light.purple]}
         start={{ x: 0, y: 0 }}
-        end={{ x: 0, y: 1 }}
-        style={StyleSheet.absoluteFillObject}
-      />
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.heroWrapper}>
-          <ClientHeroHeader
-            title="Paramètres"
-            subtitle="Gérez votre profil client et vos préférences."
-          />
-        </View>
+        end={{ x: 1, y: 1 }}
+        style={[styles.heroCard, { paddingTop: insets.top + 24 }]}
+      >
+        <Text style={styles.heroTitle}>Paramètres</Text>
+        <Text style={styles.heroSubtitle}>Gérez votre profil et vos préférences.</Text>
+      </LinearGradient>
 
-        <View style={styles.card}>
+      <View style={styles.card}>
         {[
           { icon: 'person-outline', label: 'Profil', action: () => setProfileModalVisible(true) },
           { icon: 'notifications-outline', label: 'Notifications', action: () => setNotificationsModalVisible(true) },
           { icon: 'shield-checkmark-outline', label: 'Confidentialité', action: () => setPrivacyModalVisible(true) },
           { icon: 'lock-closed-outline', label: 'Sécurité', action: () => setSecurityModalVisible(true) },
+          { icon: 'card-outline', label: 'Abonnement', action: () => setSubscriptionModalVisible(true) },
           { icon: 'help-circle-outline', label: "Centre d'aide", action: () => setSupportModalVisible(true) },
         ].map((item: SettingItem, index, arr) => (
           <TouchableOpacity
@@ -83,20 +75,23 @@ export default function ClientSettingsScreen() {
         ))}
       </View>
 
-        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-          <Ionicons name="log-out-outline" size={18} color="#EF4444" />
-          <Text style={styles.logoutText}>Se déconnecter</Text>
-        </TouchableOpacity>
-      </ScrollView>
+      <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+        <Ionicons name="log-out-outline" size={18} color="#EF4444" />
+        <Text style={styles.logoutText}>Se déconnecter</Text>
+      </TouchableOpacity>
 
-      <ClientProfile visible={profileModalVisible} onClose={() => setProfileModalVisible(false)} />
-      <PrivacyModal visible={privacyModalVisible} onClose={() => setPrivacyModalVisible(false)} />
+      <PrestataireProfileModal visible={profileModalVisible} onClose={() => setProfileModalVisible(false)} />
       <NotificationsModal
         visible={notificationsModalVisible}
         onClose={() => setNotificationsModalVisible(false)}
       />
-      <SupportModal visible={supportModalVisible} onClose={() => setSupportModalVisible(false)} />
+      <PrivacyModal visible={privacyModalVisible} onClose={() => setPrivacyModalVisible(false)} />
       <SecurityModal visible={securityModalVisible} onClose={() => setSecurityModalVisible(false)} />
+      <PrestataireSubscriptionModal
+        visible={subscriptionModalVisible}
+        onClose={() => setSubscriptionModalVisible(false)}
+      />
+      <SupportModal visible={supportModalVisible} onClose={() => setSupportModalVisible(false)} />
     </SafeAreaView>
   );
 }
@@ -104,18 +99,32 @@ export default function ClientSettingsScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
+    backgroundColor: '#E5E9FF',
+    paddingBottom: 24,
   },
-  content: {
-    paddingBottom: 32,
+  heroCard: {
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
     paddingHorizontal: 24,
-    gap: 24,
+    paddingBottom: 28,
+    marginBottom: 18,
   },
-  heroWrapper: {
-    marginHorizontal: -24,
+  heroTitle: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    textAlign: 'center',
+  },
+  heroSubtitle: {
+    marginTop: 8,
+    color: '#F8FAFC',
+    textAlign: 'center',
   },
   card: {
     backgroundColor: '#FFFFFF',
     borderRadius: 24,
+    marginHorizontal: 20,
+    marginBottom: 24,
     paddingVertical: 6,
     shadowColor: '#000',
     shadowOpacity: 0.05,
@@ -148,7 +157,8 @@ const styles = StyleSheet.create({
     color: '#1F1F33',
   },
   logoutButton: {
-    marginTop: 8,
+    marginTop: 24,
+    marginHorizontal: 40,
     borderRadius: 18,
     borderWidth: 1,
     borderColor: '#FECACA',

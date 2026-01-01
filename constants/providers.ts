@@ -14,6 +14,7 @@ export type ProviderService = {
 export type Provider = {
   id: string;
   name: string;
+  companyName?: string;
   category: string;
   city: string;
   rating: string;

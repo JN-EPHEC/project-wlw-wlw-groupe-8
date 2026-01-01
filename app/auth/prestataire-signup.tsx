@@ -33,13 +33,15 @@ export default function PrestataireFirstInfos() {
   const colors = useThemeColors();
   const router = useRouter();
   const [step, setStep] = useState(0);
+  const [companyName, setCompanyName] = useState('');
   const [lastName, setLastName] = useState('');
   const [firstName, setFirstName] = useState('');
-  const [vat, setVat] = useState('');
+  const [vat, setVat] = useState('BE');
   const [job, setJob] = useState('');
   const [cities, setCities] = useState<string[]>([]);
   const [services, setServices] = useState<DraftService[]>([]);
   const [weeklySchedule, setWeeklySchedule] = useState<WeeklySchedule>(defaultWeeklySchedule);
+  const [subscriptionPlan, setSubscriptionPlan] = useState<'free' | 'premium'>('free');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [signingUp, setSigningUp] = useState(false);
@@ -93,6 +95,7 @@ export default function PrestataireFirstInfos() {
             blockedDates: [],
             blockedRanges: [],
           },
+          subscriptionPlan,
           type: "prestataire",
           userId: userCredential.user.uid 
         });
@@ -137,8 +140,10 @@ export default function PrestataireFirstInfos() {
             </View>
 
             <View style={styles.content}>
-              {step === 0 &&
+              {step === 0 && (
                 <PrestataireFirstInfo
+                  companyName={companyName}
+                  setCompanyName={setCompanyName}
                   lastName={lastName}
                   setLastName={setLastName}
                   firstName={firstName}
@@ -148,7 +153,7 @@ export default function PrestataireFirstInfos() {
                   step={step}
                   setStep={setStep}
                 />
-              }
+              )}
               {step === 1 &&
                 <PrestataireWork
                   job={job}
@@ -190,6 +195,8 @@ export default function PrestataireFirstInfos() {
                   signUp={signUp}
                   loading={signingUp}
                   errorMessage={signupError}
+                  selectedPlan={subscriptionPlan}
+                  onSelectPlan={setSubscriptionPlan}
                 />
               }
             </View>

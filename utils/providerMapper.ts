@@ -104,6 +104,10 @@ export const mapContactToProvider = (id: string, data: Record<string, any>): Pro
   const fallbackPricing = data.pricing ?? {};
   const gallery = toStringArray(data.gallery);
   const fullName = `${data.firstname ?? ''} ${data.lastname ?? ''}`.trim();
+  const companyName =
+    typeof data.companyName === 'string' && data.companyName.trim()
+      ? data.companyName.trim()
+      : '';
   const description =
     typeof data.description === 'string' && data.description.trim()
       ? data.description.trim()
@@ -128,7 +132,8 @@ export const mapContactToProvider = (id: string, data: Record<string, any>): Pro
     normalizeNumber(data.price);
   return {
     id,
-    name: fullName || data.company || data.job || 'Prestataire SpeedEvent',
+    name: companyName || fullName || data.company || data.job || 'Prestataire SpeedEvent',
+    companyName: companyName || undefined,
     category: data.job ?? 'Prestataire',
     city: cities.length ? cities.join(', ') : 'Ville à préciser',
     rating: data.rating ? String(data.rating) : '5.0',

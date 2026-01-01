@@ -3,7 +3,9 @@ import { Tabs } from 'expo-router';
 import React from 'react';
 import { View } from 'react-native';
 
+import usePushNotifications from '@/hooks/usePushNotifications';
 import { useUnreadMessages } from '@/hooks/useUnreadMessages';
+import { usePendingRequests } from '@/hooks/usePendingRequests';
 
 const TabIcon = ({
   name,
@@ -36,6 +38,8 @@ const TabIcon = ({
 
 export default function TabsLayout() {
   const hasUnread = useUnreadMessages('prestataire');
+  const hasPendingRequests = usePendingRequests();
+  usePushNotifications('prestataire');
   return (
     <Tabs
       screenOptions={{
@@ -60,7 +64,9 @@ export default function TabsLayout() {
         name="demandes"
         options={{
           title: 'Demandes',
-          tabBarIcon: ({ color, size }) => <TabIcon name="book" color={color} size={size} />,
+          tabBarIcon: ({ color, size }) => (
+            <TabIcon name="book" color={color} size={size} showBadge={hasPendingRequests} />
+          ),
         }}
       />
       <Tabs.Screen
@@ -80,7 +86,7 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="params"
+        name="settings"
         options={{
           title: 'Paramètres',
           tabBarIcon: ({ color, size }) => (

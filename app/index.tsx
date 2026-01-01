@@ -11,12 +11,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 export default function HomePage() {
   const colors = useThemeColors();
   
-  // getAuth().onAuthStateChanged((user) => {
-  //   if(user) {
-  //     router.replace("/../(tabs)");
-  //   }
-  // });
-  
   return (
     <View style={styles.screen}>
       <LinearGradient

@@ -3,6 +3,7 @@ import { Tabs } from 'expo-router';
 import React from 'react';
 import { View } from 'react-native';
 
+import usePushNotifications from '@/hooks/usePushNotifications';
 import { useUnreadMessages } from '@/hooks/useUnreadMessages';
 
 const TabIcon = ({
@@ -36,6 +37,7 @@ const TabIcon = ({
 
 export default function TabsLayout() {
   const hasUnread = useUnreadMessages('client');
+  usePushNotifications('client');
   return (
     <Tabs
       screenOptions={{
@@ -52,7 +54,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Home',
+          title: 'Accueil',
           tabBarIcon: ({ color, size }) => <TabIcon name="home" color={color} size={size} />,
         }}
       />

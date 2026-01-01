@@ -4,43 +4,41 @@ import { Colors } from '@/constants/Colors';
 import { useThemeColors } from '@/hooks/UseThemeColors';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import React, { useState } from 'react';
+import React from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
+type SubscriptionPlanId = 'free' | 'premium';
+
 type Plan = {
-    id: 'monthly' | 'annual';
+    id: SubscriptionPlanId;
     title: string;
     description: string;
     price: string;
     unit: string;
     subtext?: string;
     badge?: string;
+    requiresPayment: boolean;
 };
 
 const plans: Plan[] = [
     {
-        id: 'monthly',
-        title: 'Formule Mensuelle',
-        description: 'Flexible et sans engagement',
-        price: '19,99 €',
+        id: 'free',
+        title: 'Version gratuite',
+        description: 'Limité à 3 rendez-vous par mois',
+        price: '0 €',
         unit: '/mois',
+        subtext: 'Convient pour tester la plateforme',
+        requiresPayment: false,
     },
     {
-        id: 'annual',
-        title: 'Formule Annuelle',
-        description: 'Économisez 25% sur l’année',
-        price: '179,99 €',
-        unit: '/an',
-        subtext: 'Soit 14,99 €/mois',
-        badge: 'Recommandé',
+        id: 'premium',
+        title: 'Abonnement Premium',
+        description: 'Rendez-vous illimités et visibilité renforcée',
+        price: '9,99 €',
+        unit: '/mois',
+        subtext: 'Priorité dans les recherches clients',
+        requiresPayment: true,
     },
-];
-
-const advantages = [
-    'Gestion illimitée de vos services',
-    'Visibilité auprès des clients',
-    'Système de réservation en ligne',
-    'Support client prioritaire',
 ];
 
 const paymentMethods = [
@@ -53,11 +51,26 @@ type PrestataireSubscriptionProps = {
     signUp: () => void;
     loading?: boolean;
     errorMessage?: string | null;
+    selectedPlan: SubscriptionPlanId;
+    onSelectPlan: (plan: SubscriptionPlanId) => void;
 };
 
-export default function PrestataireSubscription({ signUp, loading = false, errorMessage = null }: PrestataireSubscriptionProps) {
+export default function PrestataireSubscription({
+    signUp,
+    loading = false,
+    errorMessage = null,
+    selectedPlan,
+    onSelectPlan,
+}: PrestataireSubscriptionProps) {
     const colors = useThemeColors();
-    const [selectedPlan, setSelectedPlan] = useState<Plan['id']>('annual');
+    const currentPlan = plans.find((plan) => plan.id === selectedPlan) ?? plans[0];
+    const ctaLabel =
+        selectedPlan === 'free'
+            ? 'Continuer avec la version gratuite'
+            : 'Confirmer et payer 9,99 €/mois';
+    const paymentNote = currentPlan.requiresPayment
+        ? 'Paiement 100% sécurisé'
+        : 'Aucun paiement requis pour la version gratuite';
 
     return (
         <Card style={styles.card}>
@@ -129,7 +142,7 @@ export default function PrestataireSubscription({ signUp, loading = false, error
                 return (
                     <Pressable
                         key={plan.id}
-                        onPress={() => setSelectedPlan(plan.id)}
+                        onPress={() => onSelectPlan(plan.id)}
                         style={styles.planOption}
                     >
                         {showGradient ? (
@@ -189,39 +202,33 @@ export default function PrestataireSubscription({ signUp, loading = false, error
                 );
             })}
 
-            <View style={styles.features}>
-                <ThemedText variant="subtitle" color="black" style={styles.featuresTitle}>
-                    Tous les abonnements incluent :
-                </ThemedText>
-                {advantages.map((advantage) => (
-                    <View key={advantage} style={styles.featureItem}>
-                        <View style={styles.featureIcon}>
-                            <Ionicons name="checkmark" size={14} color={Colors.light.white} />
-                        </View>
-                        <ThemedText variant="body" color="gray" style={styles.featureLabel}>
-                            {advantage}
-                        </ThemedText>
-                    </View>
-                ))}
-            </View>
-
             <View style={styles.paymentInfo}>
-                <Ionicons name="shield-checkmark" size={18} color={Colors.light.blue} />
+                <Ionicons
+                    name={currentPlan.requiresPayment ? 'shield-checkmark' : 'information-circle-outline'}
+                    size={18}
+                    color={currentPlan.requiresPayment ? Colors.light.blue : Colors.light.pink}
+                />
                 <ThemedText variant="body" color="gray" style={styles.paymentLabel}>
-                    Paiement 100% sécurisé
+                    {paymentNote}
                 </ThemedText>
             </View>
 
-            <View style={styles.paymentMethods}>
-                {paymentMethods.map((method) => (
-                    <View key={method.id} style={[styles.methodCard, { borderColor: colors.lila }]}>
-                        <Ionicons name={method.icon} size={20} color={colors.black} />
-                        <ThemedText variant="body" color="black" style={styles.methodLabel}>
-                            {method.label}
-                        </ThemedText>
-                    </View>
-                ))}
-            </View>
+            {currentPlan.requiresPayment ? (
+                <View style={styles.paymentMethods}>
+                    {paymentMethods.map((method) => (
+                        <View key={method.id} style={[styles.methodCard, { borderColor: colors.lila }]}>
+                            <Ionicons name={method.icon} size={20} color={colors.black} />
+                            <ThemedText variant="body" color="black" style={styles.methodLabel}>
+                                {method.label}
+                            </ThemedText>
+                        </View>
+                    ))}
+                </View>
+            ) : (
+                <ThemedText variant="body" color="gray" style={styles.freeNote}>
+                    Passez en Premium quand vous le souhaitez pour débloquer toutes les fonctionnalités.
+                </ThemedText>
+            )}
 
             <Pressable style={styles.primaryAction} onPress={signUp} disabled={loading}>
                 <LinearGradient
@@ -231,7 +238,7 @@ export default function PrestataireSubscription({ signUp, loading = false, error
                     style={[styles.primaryButton, loading && styles.primaryButtonDisabled]}
                 >
                     <ThemedText color="white" style={styles.primaryLabel}>
-                        {loading ? 'Traitement...' : 'Confirmer et payer'}
+                        {loading ? 'Traitement...' : ctaLabel}
                     </ThemedText>
                 </LinearGradient>
             </Pressable>
@@ -368,46 +375,6 @@ const styles = StyleSheet.create({
     radioCheckedOnGradient: {
         backgroundColor: 'rgba(255,255,255,0.25)',
     },
-    badge: {
-        paddingHorizontal: 16,
-        paddingVertical: 6,
-        borderRadius: 999,
-        backgroundColor: '#15C872',
-        alignSelf: 'flex-start',
-    },
-    badgeLabel: {
-        fontSize: 12,
-        letterSpacing: 0.5,
-        fontFamily: 'Poppins-Regular',
-        fontWeight: '600',
-        textTransform: 'uppercase',
-    },
-    features: {
-        marginTop: 16,
-        padding: 20,
-        borderRadius: 24,
-        backgroundColor: 'rgba(217, 238, 251, 0.6)',
-    },
-    featuresTitle: {
-        marginBottom: 16,
-    },
-    featureItem: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginBottom: 10,
-    },
-    featureIcon: {
-        width: 26,
-        height: 26,
-        borderRadius: 13,
-        backgroundColor: Colors.light.pink,
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginRight: 12,
-    },
-    featureLabel: {
-        flex: 1,
-    },
     paymentInfo: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -420,6 +387,11 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         justifyContent: 'space-between',
         marginTop: 16,
+    },
+    freeNote: {
+        textAlign: 'center',
+        marginTop: 16,
+        marginBottom: 8,
     },
     methodCard: {
         flex: 1,

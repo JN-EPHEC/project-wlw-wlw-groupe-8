@@ -19,6 +19,7 @@ import {
   Alert,
   Image,
   Modal,
+  TextInput,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -128,20 +129,13 @@ const ProviderProfileModal = ({ provider, onClose, onContact }: ProviderProfileM
   const [bookingError, setBookingError] = useState<string | null>(null);
   const [bookingSuccess, setBookingSuccess] = useState<string | null>(null);
   const [bookingLoading, setBookingLoading] = useState(false);
+  const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(null);
+  const [bookingAddress, setBookingAddress] = useState('');
   const [clientDocId, setClientDocId] = useState<string | null>(null);
   const [clientName, setClientName] = useState<string>('');
   const [selectedServiceIndex, setSelectedServiceIndex] = useState<number | null>(null);
   const [bookedSlotsByDate, setBookedSlotsByDate] = useState<Record<string, TimeSlot[]>>({});
   const [pendingSlotsByDate, setPendingSlotsByDate] = useState<Record<string, TimeSlot[]>>({});
-
-  const statsCards = useMemo(
-    () => [
-      { label: 'Avis', value: provider.stats.reviews, icon: 'star' as const },
-      { label: "Années d'expérience", value: provider.stats.experienceYears, icon: 'briefcase' as const },
-      { label: 'Événements', value: provider.stats.events, icon: 'calendar' as const },
-    ],
-    [provider.stats],
-  );
 
   useEffect(() => {
     const fetchClientProfile = async () => {
@@ -355,43 +349,6 @@ const ProviderProfileModal = ({ provider, onClose, onContact }: ProviderProfileM
     [selectedDate, availableSlotsByDate],
   );
 
-  const primaryService = useMemo(() => {
-    if (!provider.services.length) {
-      return undefined;
-    }
-    const pricedServices = provider.services.filter(
-      (service) => typeof service.priceFrom === 'number' && !Number.isNaN(service.priceFrom),
-    );
-    if (pricedServices.length === 0) {
-      return provider.services[0];
-    }
-    return pricedServices.reduce((best, current) => {
-      if (
-        typeof best.priceFrom === 'number' &&
-        typeof current.priceFrom === 'number' &&
-        current.priceFrom < best.priceFrom
-      ) {
-        return current;
-      }
-      if (typeof best.priceFrom !== 'number') {
-        return current;
-      }
-      return best;
-    }, pricedServices[0]);
-  }, [provider.services]);
-
-  const servicePriceSummary = useMemo(() => {
-    if (!provider.services.length) {
-      return 'Tarifs sur devis';
-    }
-    if (!primaryService || typeof primaryService.priceFrom !== 'number') {
-      return 'Tarifs variables selon le service';
-    }
-    const priceLabel = formatServicePrice(primaryService.priceFrom);
-    const durationLabel = formatServiceDuration(primaryService.durationHours);
-    return durationLabel ? `${priceLabel} • ${durationLabel}` : priceLabel;
-  }, [primaryService, provider.services]);
-
   const selectedService = useMemo(
     () => (selectedServiceIndex !== null ? provider.services[selectedServiceIndex] : null),
     [provider.services, selectedServiceIndex],
@@ -430,9 +387,19 @@ const ProviderProfileModal = ({ provider, onClose, onContact }: ProviderProfileM
     setBookingError(null);
     setBookingSuccess(null);
     setSelectedServiceIndex(null);
+    setSelectedSlot(null);
+    setBookingAddress('');
   };
 
-  const handleSlotBooking = async (slot: TimeSlot) => {
+  const handleSlotBooking = async () => {
+    if (!selectedSlot) {
+      setBookingError('Sélectionnez un créneau horaire.');
+      return;
+    }
+    if (!bookingAddress.trim()) {
+      setBookingError('Veuillez indiquer votre adresse.');
+      return;
+    }
     const user = auth.currentUser;
     if (!selectedDate) {
       setBookingError('Sélectionnez une date valide.');
@@ -443,7 +410,7 @@ const ProviderProfileModal = ({ provider, onClose, onContact }: ProviderProfileM
       setBookingError('Sélectionnez un service pour continuer.');
       return;
     }
-    if (isSlotPendingForUser(dateToBook, slot)) {
+    if (isSlotPendingForUser(dateToBook, selectedSlot)) {
       setBookingError('Vous avez déjà une demande en attente pour ce créneau.');
       return;
     }
@@ -466,7 +433,8 @@ const ProviderProfileModal = ({ provider, onClose, onContact }: ProviderProfileM
         clientUserId: user.uid,
         clientName: clientName || user.email,
         date: dateToBook,
-        slot,
+        slot: selectedSlot,
+        address: bookingAddress.trim(),
         service: {
           name: selectedService.name,
           durationHours: selectedService.durationHours ?? null,
@@ -482,7 +450,7 @@ const ProviderProfileModal = ({ provider, onClose, onContact }: ProviderProfileM
         const current = prev[dateToBook] ?? [];
         return {
           ...prev,
-          [dateToBook]: [...current, slot],
+          [dateToBook]: [...current, selectedSlot],
         };
       });
       Alert.alert(
@@ -496,6 +464,12 @@ const ProviderProfileModal = ({ provider, onClose, onContact }: ProviderProfileM
     } finally {
       setBookingLoading(false);
     }
+  };
+
+  const handleSlotSelect = (slot: TimeSlot) => {
+    setSelectedSlot(slot);
+    setBookingError(null);
+    setBookingSuccess(null);
   };
 
   const goToPreviousMonth = () => {
@@ -623,10 +597,10 @@ const ProviderProfileModal = ({ provider, onClose, onContact }: ProviderProfileM
         );
       case 'reviews':
         return (
-          <View style={styles.infoCard}>
-            <Text style={styles.sectionTitle}>Avis ({provider.reviews.length})</Text>
-            <View style={{ gap: 12 }}>
-              {provider.reviews.map((review, index) => (
+            <View style={styles.cardSection}>
+              <Text style={styles.sectionTitle}>Avis ({provider.reviews.length})</Text>
+              <View style={{ gap: 12 }}>
+                {provider.reviews.map((review, index) => (
                 <View key={`${provider.id}-review-${index}`} style={styles.reviewCard}>
                   <View style={styles.reviewHeader}>
                     <Text style={styles.reviewAuthor}>{review.author}</Text>
@@ -646,12 +620,12 @@ const ProviderProfileModal = ({ provider, onClose, onContact }: ProviderProfileM
       default:
         return (
           <View style={{ gap: 16 }}>
-            <View style={styles.infoCard}>
+            <View style={styles.cardSection}>
               <Text style={styles.sectionTitle}>Description</Text>
               <Text style={styles.descriptionText}>{provider.description}</Text>
             </View>
 
-            <View style={styles.infoCard}>
+            <View style={styles.cardSection}>
               <Text style={styles.sectionTitle}>Services proposés</Text>
               {provider.services.length === 0 ? (
                 <Text style={styles.emptyServiceText}>
@@ -675,7 +649,7 @@ const ProviderProfileModal = ({ provider, onClose, onContact }: ProviderProfileM
               )}
             </View>
 
-            <View style={styles.infoCard}>
+            <View style={styles.cardSection}>
               <Text style={styles.sectionTitle}>Galerie</Text>
               {provider.gallery.length === 0 ? (
                 <Text style={styles.emptyGalleryText}>
@@ -716,31 +690,6 @@ const ProviderProfileModal = ({ provider, onClose, onContact }: ProviderProfileM
                 <Text style={styles.heroMetaText}>{provider.location}</Text>
               </View>
             </View>
-          </View>
-        </View>
-
-        <View style={styles.statsRow}>
-          {statsCards.map((card) => (
-            <View key={card.label} style={styles.statCard}>
-              <Ionicons name={card.icon} size={18} color="#7C3AED" />
-              <Text style={styles.statValue}>{card.value}</Text>
-              <Text style={styles.statLabel}>{card.label}</Text>
-            </View>
-          ))}
-        </View>
-
-        <View style={styles.infoCard}>
-          <View style={styles.infoRow}>
-            <Ionicons name="location-outline" size={18} color="#6B6B7B" />
-            <Text style={styles.infoText}>{provider.location}</Text>
-          </View>
-          <View style={styles.infoRow}>
-            <Ionicons name="cash-outline" size={18} color="#6B6B7B" />
-            <Text style={styles.infoText}>{servicePriceSummary}</Text>
-          </View>
-          <View style={styles.infoRow}>
-            <Ionicons name="time-outline" size={18} color="#6B6B7B" />
-            <Text style={styles.infoText}>{provider.responseTime}</Text>
           </View>
         </View>
 
@@ -796,84 +745,146 @@ const ProviderProfileModal = ({ provider, onClose, onContact }: ProviderProfileM
               contentContainerStyle={styles.slotListContent}
               showsVerticalScrollIndicator={false}
             >
-              <View style={styles.slotModalSection}>
-                <Text style={styles.slotModalLabel}>1. Choisissez un service</Text>
-                {provider.services.length === 0 ? (
-                  <Text style={styles.slotModalEmpty}>Ce prestataire n&apos;a pas encore défini ses services.</Text>
-                ) : (
-                  <View style={styles.slotServiceList}>
-                    {provider.services.map((service, index) => {
-                      const durationLabel = formatServiceDuration(service.durationHours);
-                      const details = [durationLabel, formatServicePrice(service.priceFrom)]
-                        .filter(Boolean)
-                        .join(' • ');
-                      const isSelected = selectedServiceIndex === index;
-                      return (
-                        <TouchableOpacity
-                          key={`${service.name}-${index}`}
-                          style={[styles.serviceOption, isSelected && styles.serviceOptionSelected]}
-                          onPress={() => setSelectedServiceIndex(index)}
-                          disabled={bookingLoading}
-                        >
-                          <View style={{ flex: 1 }}>
-                            <Text style={styles.serviceOptionName}>{service.name}</Text>
-                            <Text style={styles.serviceOptionMeta}>
-                              {details || 'Tarif communiqué après contact'}
-                            </Text>
-                          </View>
-                          {isSelected ? (
-                            <Ionicons name="checkmark-circle" size={20} color={Colors.light.purple} />
-                          ) : null}
-                        </TouchableOpacity>
-                      );
-                    })}
+              {selectedService && selectedSlot ? (
+                <View style={styles.slotModalSection}>
+                  <Text style={styles.slotModalLabel}>Résumé de votre demande</Text>
+                  <View style={styles.summaryCard}>
+                    <Text style={styles.summaryTitle}>{selectedService.name}</Text>
+                    <Text style={styles.summaryMeta}>
+                      {formatDisplayDate(selectedDate)} • {selectedSlot.start} - {selectedSlot.end}
+                    </Text>
                   </View>
-                )}
-              </View>
+                  <Text style={styles.label}>Adresse de l&apos;événement</Text>
+                  <TextInput
+                    style={styles.addressInput}
+                    placeholder="Rue, numéro, ville..."
+                    placeholderTextColor="#A0A1AF"
+                    value={bookingAddress}
+                    onChangeText={setBookingAddress}
+                    editable={!bookingLoading}
+                  />
+                  <TouchableOpacity
+                    style={[styles.confirmButton, bookingLoading && { opacity: 0.7 }]}
+                    onPress={handleSlotBooking}
+                    disabled={bookingLoading}
+                  >
+                    <LinearGradient
+                      colors={[Colors.light.pink, Colors.light.purple, Colors.light.blue]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.confirmGradient}
+                    >
+                      <Text style={styles.confirmLabel}>
+                        {bookingLoading ? 'Envoi en cours...' : 'Confirmer'}
+                      </Text>
+                    </LinearGradient>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.changeSlotButton}
+                    onPress={() => {
+                      setSelectedSlot(null);
+                      setBookingAddress('');
+                    }}
+                    disabled={bookingLoading}
+                  >
+                    <Text style={styles.changeSlotLabel}>Changer de créneau</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <>
+                  <View style={styles.slotModalSection}>
+                    <Text style={styles.slotModalLabel}>1. Choisissez un service</Text>
+                    {provider.services.length === 0 ? (
+                      <Text style={styles.slotModalEmpty}>Ce prestataire n&apos;a pas encore défini ses services.</Text>
+                    ) : (
+                      <View style={styles.slotServiceList}>
+                        {provider.services.map((service, index) => {
+                          const durationLabel = formatServiceDuration(service.durationHours);
+                          const details = [durationLabel, formatServicePrice(service.priceFrom)]
+                            .filter(Boolean)
+                            .join(' • ');
+                          const isSelected = selectedServiceIndex === index;
+                          return (
+                            <TouchableOpacity
+                              key={`${service.name}-${index}`}
+                              style={[styles.serviceOption, isSelected && styles.serviceOptionSelected]}
+                              onPress={() => {
+                                setSelectedServiceIndex(index);
+                                setSelectedSlot(null);
+                                setBookingAddress('');
+                                setBookingError(null);
+                              }}
+                              disabled={bookingLoading}
+                            >
+                              <View style={{ flex: 1 }}>
+                                <Text style={styles.serviceOptionName}>{service.name}</Text>
+                                <Text style={styles.serviceOptionMeta}>
+                                  {details || 'Tarif communiqué après contact'}
+                                </Text>
+                              </View>
+                              {isSelected ? (
+                                <Ionicons name="checkmark-circle" size={20} color={Colors.light.purple} />
+                              ) : null}
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    )}
+                  </View>
 
-              <View style={styles.slotModalSection}>
-                <Text style={styles.slotModalLabel}>2. Choisissez un horaire</Text>
-                {!selectedService ? (
-                  <Text style={styles.slotModalInfo}>
-                    Sélectionnez un service pour afficher les heures disponibles.
-                  </Text>
-                ) : eligibleSlots.length === 0 ? (
-                  <Text style={styles.slotModalEmpty}>
-                    Aucun créneau suffisant pour ce service sur cette date.
-                  </Text>
-                ) : null}
+                  <View style={styles.slotModalSection}>
+                    <Text style={styles.slotModalLabel}>2. Choisissez un horaire</Text>
+                    {!selectedService ? (
+                      <Text style={styles.slotModalInfo}>
+                        Sélectionnez un service pour afficher les heures disponibles.
+                      </Text>
+                    ) : eligibleSlots.length === 0 ? (
+                      <Text style={styles.slotModalEmpty}>
+                        Aucun créneau suffisant pour ce service sur cette date.
+                      </Text>
+                    ) : null}
 
-                {selectedService
-                  ? eligibleSlots.map((slot) => {
-                      const pending = isSlotPendingForUser(selectedDate, slot);
-                      return (
-                        <TouchableOpacity
-                          key={`${slot.start}-${slot.end}`}
-                          style={[styles.slotButton, pending && styles.pendingSlotButton]}
-                          onPress={() => handleSlotBooking(slot)}
-                          disabled={bookingLoading || pending}
-                        >
-                          <Ionicons
-                            name={pending ? 'time' : 'time-outline'}
-                            size={18}
-                            color={pending ? '#6B7280' : '#FFFFFF'}
-                          />
-                          <Text
-                            style={[styles.slotButtonLabel, pending && styles.pendingSlotLabel]}
-                          >
-                            {slot.start} - {slot.end}
-                          </Text>
-                          {pending ? (
-                            <View style={styles.pendingBadge}>
-                              <Ionicons name="timer-outline" size={12} color="#6B7280" />
-                              <Text style={styles.pendingBadgeText}>En attente</Text>
-                            </View>
-                          ) : null}
-                        </TouchableOpacity>
-                      );
-                    })
-                  : null}
-              </View>
+                    {selectedService
+                      ? eligibleSlots.map((slot) => {
+                          const pending = isSlotPendingForUser(selectedDate, slot);
+                          const isSelected =
+                            selectedSlot?.start === slot.start && selectedSlot?.end === slot.end;
+                          return (
+                            <TouchableOpacity
+                              key={`${slot.start}-${slot.end}`}
+                              style={[
+                                styles.slotButton,
+                                pending && styles.pendingSlotButton,
+                                isSelected && styles.selectedSlotButton,
+                              ]}
+                              onPress={() => handleSlotSelect(slot)}
+                              disabled={bookingLoading || pending}
+                            >
+                              <Ionicons
+                                name={pending ? 'time' : isSelected ? 'checkmark-circle' : 'time-outline'}
+                                size={18}
+                                color={
+                                  pending ? '#6B7280' : isSelected ? Colors.light.white : '#FFFFFF'
+                                }
+                              />
+                              <Text
+                                style={[styles.slotButtonLabel, pending && styles.pendingSlotLabel]}
+                              >
+                                {slot.start} - {slot.end}
+                              </Text>
+                              {pending ? (
+                                <View style={styles.pendingBadge}>
+                                  <Ionicons name="timer-outline" size={12} color="#6B7280" />
+                                  <Text style={styles.pendingBadgeText}>En attente</Text>
+                                </View>
+                              ) : null}
+                            </TouchableOpacity>
+                          );
+                        })
+                      : null}
+                  </View>
+                </>
+              )}
             </ScrollView>
             <Text style={styles.slotModalHint}>Les horaires sont affichés en heure locale.</Text>
           </View>
@@ -947,53 +958,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 13,
   },
-  statsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    marginBottom: 16,
-  },
-  statCard: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    padding: 14,
-    alignItems: 'center',
-    marginHorizontal: 4,
-    gap: 4,
-    shadowColor: '#141414',
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 3,
-  },
-  statValue: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#18181B',
-  },
-  statLabel: {
-    fontSize: 12,
-    color: '#6B7280',
-    textAlign: 'center',
-  },
-  infoCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    marginHorizontal: 20,
-    marginBottom: 16,
-    padding: 18,
-    gap: 14,
-  },
-  infoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  infoText: {
-    fontSize: 14,
-    color: '#3F3F46',
-  },
   contactButton: {
     marginHorizontal: 20,
     marginBottom: 20,
@@ -1046,7 +1010,17 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     color: '#1F1F33',
-    marginBottom: 8,
+  },
+  cardSection: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    marginHorizontal: 20,
+    padding: 18,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    gap: 12,
   },
   availabilityCard: {
     borderRadius: 22,
@@ -1314,6 +1288,9 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     backgroundColor: '#7C3AED',
   },
+  selectedSlotButton: {
+    backgroundColor: '#6D28D9',
+  },
   slotButtonLabel: {
     color: '#FFFFFF',
     fontWeight: '600',
@@ -1333,6 +1310,53 @@ const styles = StyleSheet.create({
   pendingBadgeText: {
     color: '#6B7280',
     fontSize: 12,
+    fontWeight: '600',
+  },
+  summaryCard: {
+    backgroundColor: '#F1F5F9',
+    borderRadius: 16,
+    padding: 12,
+    gap: 4,
+    marginBottom: 10,
+  },
+  summaryTitle: {
+    fontWeight: '700',
+    color: '#1F1F33',
+  },
+  summaryMeta: {
+    color: '#6B7280',
+  },
+  label: {
+    fontWeight: '600',
+    color: '#1F1F33',
+    marginTop: 4,
+  },
+  addressInput: {
+    borderRadius: 16,
+    backgroundColor: '#F3F4F6',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginTop: 6,
+    marginBottom: 12,
+  },
+  confirmButton: {
+    borderRadius: 18,
+    overflow: 'hidden',
+  },
+  confirmGradient: {
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  confirmLabel: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+  },
+  changeSlotButton: {
+    marginTop: 12,
+    alignSelf: 'center',
+  },
+  changeSlotLabel: {
+    color: Colors.light.purple,
     fontWeight: '600',
   },
   slotModalHint: {

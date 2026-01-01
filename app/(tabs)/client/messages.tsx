@@ -1,4 +1,5 @@
 import { Colors } from '@/constants/Colors';
+import ClientHeroHeader from '@/components/ClientHeroHeader';
 import { Provider } from '@/constants/providers';
 import { auth, db } from '@/fireBaseConfig';
 import { PLACEHOLDER_AVATAR_URI } from '@/utils/providerMapper';
@@ -7,6 +8,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import {
   collection,
   doc,
+  getDoc,
   getDocs,
   limit,
   onSnapshot,
@@ -15,18 +17,18 @@ import {
   updateDoc,
   where,
 } from 'firebase/firestore';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
   Image,
   Modal,
-  SafeAreaView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import ProviderChatScreen from '@/components/ProviderChatModal';
 
@@ -52,7 +54,8 @@ const formatTimestamp = (value: Date | null) => {
 
 const toProvider = (data: Record<string, any>): Provider => ({
   id: data.providerId ?? 'unknown',
-  name: data.providerName ?? 'Prestataire SpeedEvent',
+  name: data.providerCompanyName || data.providerName || 'Prestataire SpeedEvent',
+  companyName: data.providerCompanyName || data.providerName || undefined,
   category: data.providerCategory ?? 'Prestataire',
   city: data.providerCity ?? 'Belgique',
   rating: '5.0',
@@ -74,6 +77,7 @@ export default function ClientMessagesScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const [providerNameCache, setProviderNameCache] = useState<Record<string, string>>({});
   const [activeChat, setActiveChat] = useState<{ provider: Provider; conversationId?: string | null } | null>(null);
   const [chatVisible, setChatVisible] = useState(false);
   const user = auth.currentUser;
@@ -109,23 +113,84 @@ export default function ClientMessagesScreen() {
     fetchProfile();
   }, [user]);
 
+  const fetchProviderNames = useCallback(
+    async (ids: string[]) => {
+      const missing = ids.filter((id) => id && !providerNameCache[id]);
+      if (!missing.length) return;
+      try {
+        const lookups = await Promise.all(
+          missing.map(async (providerId) => {
+            try {
+              const snap = await getDoc(doc(db, 'contacts', providerId));
+              if (!snap.exists()) return null;
+              const data = snap.data();
+              const companyName =
+                typeof data.companyName === 'string' && data.companyName.trim().length > 0
+                  ? data.companyName.trim()
+                  : null;
+              const displayName =
+                companyName ||
+                [data.firstname, data.lastname]
+                  .filter(
+                    (value) => typeof value === 'string' && value && value.trim().length > 0,
+                  )
+                  .join(' ')
+                  .trim() ||
+                data.businessName ||
+                data.name ||
+                null;
+              return displayName ? { providerId, displayName } : null;
+            } catch (err) {
+              console.error('Impossible de récupérer le prestataire', providerId, err);
+              return null;
+            }
+          }),
+        );
+        const updates: Record<string, string> = {};
+        lookups.forEach((result) => {
+          if (result) {
+            updates[result.providerId] = result.displayName;
+          }
+        });
+        if (Object.keys(updates).length > 0) {
+          setProviderNameCache((prev) => ({ ...prev, ...updates }));
+        }
+      } catch (err) {
+        console.error('Erreur lors du chargement des prestataires', err);
+      }
+    },
+    [providerNameCache],
+  );
+
   useEffect(() => {
     if (!contactId) return;
     const conversationsRef = collection(db, 'conversations');
     const unsubscribe = onSnapshot(
       query(conversationsRef, where('clientContactId', '==', contactId), orderBy('lastMessageAt', 'desc')),
       (snapshot) => {
+        const providerIdsToFetch: string[] = [];
         const next = snapshot.docs.map((docSnap) => {
           const data = docSnap.data();
+          const provider = toProvider(data);
+          if (
+            provider.id &&
+            (!provider.companyName || provider.companyName === 'Prestataire SpeedEvent') &&
+            !providerNameCache[provider.id]
+          ) {
+            providerIdsToFetch.push(provider.id);
+          }
           return {
             id: docSnap.id,
-            provider: toProvider(data),
+            provider,
             lastMessage: data.lastMessage ?? 'Nouvelle conversation',
             lastMessageAt: data.lastMessageAt?.toDate?.() ?? null,
             unread: Boolean(data.unreadByClient),
           } as ConversationSummary;
         });
         setConversations(next);
+        if (providerIdsToFetch.length > 0) {
+          fetchProviderNames(providerIdsToFetch);
+        }
         setLoading(false);
       },
       (err) => {
@@ -135,7 +200,7 @@ export default function ClientMessagesScreen() {
       },
     );
     return () => unsubscribe();
-  }, [contactId]);
+  }, [contactId, fetchProviderNames, providerNameCache]);
 
   const markConversationAsRead = useCallback(async (conversationId?: string | null) => {
     if (!conversationId) return;
@@ -162,30 +227,32 @@ export default function ClientMessagesScreen() {
     setActiveChat(null);
   }, []);
 
-  const renderConversation = useCallback(({ item }: { item: ConversationSummary }) => {
-    return (
-      <TouchableOpacity style={styles.card} onPress={() => handleOpenChat(item.provider, item.id)}>
-        <Image source={{ uri: item.provider.image || PLACEHOLDER_AVATAR_URI }} style={styles.avatar} />
-        <View style={styles.cardContent}>
-          <View style={styles.cardHeader}>
-            <Text style={styles.providerName}>{item.provider.name}</Text>
-            <Text style={styles.timestamp}>{formatTimestamp(item.lastMessageAt)}</Text>
+  const renderConversation = useCallback(
+    ({ item }: { item: ConversationSummary }) => {
+      const providerId = item.provider.id;
+      const displayName =
+        providerNameCache[providerId] ||
+        item.provider.companyName ||
+        item.provider.name ||
+        'Prestataire SpeedEvent';
+      return (
+        <TouchableOpacity style={styles.card} onPress={() => handleOpenChat(item.provider, item.id)}>
+          <Image source={{ uri: item.provider.image || PLACEHOLDER_AVATAR_URI }} style={styles.avatar} />
+          <View style={styles.cardContent}>
+            <View style={styles.cardHeader}>
+              <Text style={styles.providerName}>{displayName}</Text>
+              <Text style={styles.timestamp}>{formatTimestamp(item.lastMessageAt)}</Text>
+            </View>
+            <Text style={styles.lastMessage} numberOfLines={1}>
+              {item.lastMessage || 'Démarrez la conversation'}
+            </Text>
           </View>
-          <Text style={styles.lastMessage} numberOfLines={1}>
-            {item.lastMessage || 'Démarrez la conversation'}
-          </Text>
-        </View>
-        {item.unread ? <View style={styles.unreadDot} /> : <Ionicons name="chevron-forward" size={18} color="#CBD5F5" />}
-      </TouchableOpacity>
-    );
-  }, [handleOpenChat]);
-
-  const header = useMemo(() => (
-    <LinearGradient colors={[Colors.light.pink, Colors.light.purple]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.headerGradient}>
-      <Text style={styles.headerTitle}>Messages</Text>
-      <Text style={styles.headerSubtitle}>Continuez vos échanges avec vos prestataires favoris.</Text>
-    </LinearGradient>
-  ), []);
+          {item.unread ? <View style={styles.unreadDot} /> : <Ionicons name="chevron-forward" size={18} color="#CBD5F5" />}
+        </TouchableOpacity>
+      );
+    },
+    [handleOpenChat, providerNameCache],
+  );
 
   const renderGradientWrapper = (children: React.ReactNode) => (
     <LinearGradient
@@ -194,7 +261,9 @@ export default function ClientMessagesScreen() {
       end={{ x: 0, y: 1 }}
       style={styles.screenGradient}
     >
-      <SafeAreaView style={styles.screen}>{children}</SafeAreaView>
+      <SafeAreaView style={styles.screen} edges={['left', 'right', 'bottom']}>
+        {children}
+      </SafeAreaView>
     </LinearGradient>
   );
 
@@ -217,7 +286,10 @@ export default function ClientMessagesScreen() {
 
   return renderGradientWrapper(
     <>
-      {header}
+      <ClientHeroHeader
+        title="Messages"
+        subtitle="Continuez vos échanges avec vos prestataires favoris."
+      />
       {conversations.length === 0 ? (
         <View style={styles.emptyCard}>
           <Ionicons name="chatbubbles-outline" size={32} color="#CBD5F5" />
@@ -268,20 +340,6 @@ const styles = StyleSheet.create({
   errorText: {
     color: Colors.light.pink,
     textAlign: 'center',
-  },
-  headerGradient: {
-    margin: 20,
-    borderRadius: 24,
-    padding: 20,
-  },
-  headerTitle: {
-    color: '#FFFFFF',
-    fontSize: 22,
-    fontWeight: '800',
-  },
-  headerSubtitle: {
-    color: '#F1F5F9',
-    marginTop: 6,
   },
   emptyCard: {
     marginHorizontal: 20,

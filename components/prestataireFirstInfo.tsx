@@ -13,24 +13,36 @@ import {
 
 export default function PrestataireFirstInfo(props: any) {
     const colors = useThemeColors()
-    const { lastName, setLastName, firstName, setFirstName, vat, setVat, step, setStep } = props;
+    const { companyName, setCompanyName, lastName, setLastName, firstName, setFirstName, vat, setVat, step, setStep } = props;
+    const VAT_PREFIX = 'BE';
     const [touched, setTouched] = useState({
+        companyName: false,
         lastName: false,
         firstName: false,
         vat: false,
     });
 
+    const companyNameError =
+        touched.companyName && companyName.trim().length === 0 ? 'Ce champ est obligatoire' : '';
     const lastNameError =
         touched.lastName && !lastName.trim() ? 'Ce champ est obligatoire' : '';
     const firstNameError =
         touched.firstName && !firstName.trim() ? 'Ce champ est obligatoire' : '';
-    const vatError = touched.vat && !vat.trim() ? 'Ce champ est obligatoire' : '';
+    const vatDigits = vat.startsWith(VAT_PREFIX) ? vat.slice(VAT_PREFIX.length) : '';
+    const vatIsValid = vat.startsWith(VAT_PREFIX) && vatDigits.length === 10;
+    const vatError =
+        touched.vat && !vatIsValid
+          ? 'Le numéro de TVA doit commencer par BE et contenir 10 chiffres.'
+          : '';
     const isFormValid =
-        lastName.trim().length > 0 && firstName.trim().length > 0 && vat.trim().length > 0;
+        companyName.trim().length > 0 &&
+        lastName.trim().length > 0 &&
+        firstName.trim().length > 0 &&
+        vatIsValid;
 
     const handleContinue = () => {
       if (!isFormValid) {
-        setTouched({ lastName: true, firstName: true, vat: true });
+        setTouched({ companyName: true, lastName: true, firstName: true, vat: true });
         return;
       }
       setStep(step + 1);
@@ -50,6 +62,26 @@ export default function PrestataireFirstInfo(props: any) {
         Complétez vos informations personnelles.
       </ThemedText>
       <View style={styles.inputs}>
+        <TextInput
+          placeholder="Nom de la société"
+          placeholderTextColor={colors.gray}
+          value={companyName}
+          onChangeText={(value) => {
+            if (!touched.companyName) setTouched((prev) => ({ ...prev, companyName: true }));
+            setCompanyName(value);
+          }}
+          onBlur={() => setTouched((prev) => ({ ...prev, companyName: true }))}
+          style={[
+            styles.input,
+            { backgroundColor: Colors.light.lightBlue },
+            companyNameError ? styles.inputError : null,
+          ]}
+        />
+        {companyNameError ? (
+          <ThemedText color="pink" style={styles.errorText}>
+            {companyNameError}
+          </ThemedText>
+        ) : null}
         <TextInput
           placeholder="Entrez votre nom"
           placeholderTextColor={colors.gray}
@@ -94,9 +126,17 @@ export default function PrestataireFirstInfo(props: any) {
           placeholder="Entrez votre numéro de TVA"
           placeholderTextColor={colors.gray}
           value={vat}
+          keyboardType="number-pad"
+          maxLength={12}
           onChangeText={(value) => {
             if (!touched.vat) setTouched((prev) => ({ ...prev, vat: true }));
-            setVat(value);
+            const uppercase = value.toUpperCase();
+            let next = uppercase.startsWith(VAT_PREFIX)
+              ? uppercase
+              : VAT_PREFIX + uppercase.replace(/[^0-9]/g, '');
+            const withoutPrefix = next.slice(VAT_PREFIX.length).replace(/[^0-9]/g, '');
+            next = VAT_PREFIX + withoutPrefix.slice(0, 10);
+            setVat(next);
           }}
           onBlur={() => setTouched((prev) => ({ ...prev, vat: true }))}
           style={[

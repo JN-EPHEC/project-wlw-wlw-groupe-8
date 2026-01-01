@@ -1,9 +1,8 @@
-import { PrestataireProfileModal } from '@/components/PrestataireProfileModal';
 import { Colors } from '@/constants/Colors';
 import { auth, db } from '@/fireBaseConfig';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { collection, doc, getDocs, query, updateDoc, where } from 'firebase/firestore';
+import { collection, doc, getDocs, onSnapshot, query, updateDoc, where } from 'firebase/firestore';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -19,7 +18,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type DayKey =
   | 'monday'
@@ -43,7 +42,16 @@ type DaySchedule = {
 
 type WeeklySchedule = Record<DayKey, DaySchedule>;
 
-type CalendarStatus = 'available' | 'unavailable';
+type CalendarStatus = 'free' | 'off' | 'booked';
+
+type BookingAgendaEntry = {
+  id: string;
+  clientName: string;
+  serviceName?: string | null;
+  slot?: { start?: string; end?: string } | null;
+  address?: string | null;
+  status: string;
+};
 
 const dayConfig = [
   { key: 'monday', label: 'Lundi', short: 'L' },
@@ -112,6 +120,22 @@ const formatDisplayDate = (iso: string) => {
   });
 };
 
+const normalizeBookingDate = (input: any): string | null => {
+  if (typeof input === 'string' && input.trim()) {
+    // Ensure we only keep the date part (YYYY-MM-DD)
+    const iso = input.slice(0, 10);
+    return iso.match(/\d{4}-\d{2}-\d{2}/) ? iso : null;
+  }
+  if (input?.toDate) {
+    const date: Date = input.toDate();
+    return toISODateString(date.getFullYear(), date.getMonth(), date.getDate());
+  }
+  if (input instanceof Date && !Number.isNaN(input.getTime())) {
+    return toISODateString(input.getFullYear(), input.getMonth(), input.getDate());
+  }
+  return null;
+};
+
 const parseDateInput = (value: string) => {
   const trimmed = value.trim();
   const match = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
@@ -135,19 +159,25 @@ const statusStyles: Record<
   CalendarStatus,
   { backgroundColor: string; textColor: string; borderColor: string }
 > = {
-  available: {
-    backgroundColor: '#D8FCE3',
+  free: {
+    backgroundColor: '#CFFDEB',
     borderColor: 'transparent',
-    textColor: '#0F7A3D',
+    textColor: '#0B7A4C',
   },
-  unavailable: {
-    backgroundColor: '#FFD9D9',
+  off: {
+    backgroundColor: '#FFD4D4',
     borderColor: 'transparent',
     textColor: '#B62323',
+  },
+  booked: {
+    backgroundColor: '#FFE9B0',
+    borderColor: 'transparent',
+    textColor: '#9A6A00',
   },
 };
 
 export default function PrestataireScreen() {
+  const insets = useSafeAreaInsets();
   const [currentMonth, setCurrentMonth] = useState(new Date().getMonth());
   const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
   const [weeklySchedule, setWeeklySchedule] = useState<WeeklySchedule>(defaultWeeklySchedule);
@@ -155,12 +185,14 @@ export default function PrestataireScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [availabilityModalVisible, setAvailabilityModalVisible] = useState(false);
-  const [profileModalVisible, setProfileModalVisible] = useState(false);
   const [rangeStartInput, setRangeStartInput] = useState('');
   const [rangeEndInput, setRangeEndInput] = useState('');
   const [dateInputError, setDateInputError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [documentId, setDocumentId] = useState<string | null>(null);
+  const [confirmedBookingsByDate, setConfirmedBookingsByDate] = useState<Record<string, BookingAgendaEntry[]>>({});
+  const [agendaVisible, setAgendaVisible] = useState(false);
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
 
   const fetchAvailability = useCallback(async () => {
     const user = auth.currentUser;
@@ -259,6 +291,41 @@ export default function PrestataireScreen() {
     fetchAvailability();
   }, [fetchAvailability]);
 
+  useEffect(() => {
+    if (!documentId) {
+      setConfirmedBookingsByDate({});
+      return undefined;
+    }
+    const bookingsQuery = query(collection(db, 'bookingRequests'), where('providerId', '==', documentId));
+    const unsubscribe = onSnapshot(bookingsQuery, (snapshot) => {
+      const next: Record<string, BookingAgendaEntry[]> = {};
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        const status: string = typeof data.status === 'string' ? data.status.toLowerCase() : 'pending';
+        if (status !== 'accepted' && status !== 'confirmed') return;
+        const isoDate = normalizeBookingDate(data.date);
+        if (!isoDate) return;
+        const entry: BookingAgendaEntry = {
+          id: docSnap.id,
+          clientName: data.clientName ?? data.clientEmail ?? 'Client SpeedEvent',
+          serviceName: data.service?.name ?? data.serviceName ?? null,
+          slot: data.slot ?? null,
+          address:
+            typeof data.address === 'string' && data.address.trim().length > 0
+              ? data.address.trim()
+              : null,
+          status,
+        };
+        if (!next[isoDate]) {
+          next[isoDate] = [];
+        }
+        next[isoDate].push(entry);
+      });
+      setConfirmedBookingsByDate(next);
+    });
+    return unsubscribe;
+  }, [documentId]);
+
   const goToPreviousMonth = () => {
     setCurrentMonth((prev) => {
       if (prev === 0) {
@@ -282,15 +349,19 @@ export default function PrestataireScreen() {
   const getDayStatus = (day: number): CalendarStatus => {
     const iso = formatISODate(currentYear, currentMonth, day);
     if (blockedRanges.some((range) => iso >= range.start && iso <= range.end)) {
-      return 'unavailable';
+      return 'off';
     }
     const jsDay = new Date(currentYear, currentMonth, day).getDay();
     const key = jsDayToKey[jsDay];
     const schedule = weeklySchedule[key];
-    if (schedule?.active && schedule.start && schedule.end) {
-      return 'available';
+    const isWorkingDay = Boolean(schedule?.active && schedule.start && schedule.end);
+    if (!isWorkingDay) {
+      return 'off';
     }
-    return 'unavailable';
+    if ((confirmedBookingsByDate[iso]?.length ?? 0) > 0) {
+      return 'booked';
+    }
+    return 'free';
   };
 
   const calendarRows = useMemo(() => {
@@ -320,9 +391,30 @@ export default function PrestataireScreen() {
     return rows;
   }, [currentMonth, currentYear]);
 
+  const agendaBookings = useMemo(() => {
+    if (!selectedDate) return [] as BookingAgendaEntry[];
+    const entries = confirmedBookingsByDate[selectedDate] ?? [];
+    return [...entries].sort((a, b) => {
+      const startA = a.slot?.start ?? '';
+      const startB = b.slot?.start ?? '';
+      return startA.localeCompare(startB);
+    });
+  }, [confirmedBookingsByDate, selectedDate]);
+
   const toggleAvailabilityModal = () => {
     setDateInputError(null);
     setAvailabilityModalVisible((prev) => !prev);
+  };
+
+  const openAgendaForDay = (day: number) => {
+    const iso = formatISODate(currentYear, currentMonth, day);
+    setSelectedDate(iso);
+    setAgendaVisible(true);
+  };
+
+  const closeAgenda = () => {
+    setAgendaVisible(false);
+    setSelectedDate(null);
   };
 
   const handleTimeChange = (day: DayKey, field: 'start' | 'end', value: string) => {
@@ -412,31 +504,22 @@ export default function PrestataireScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.screen}>
+    <SafeAreaView style={styles.screen} edges={['left', 'right', 'bottom']}>
       <LinearGradient
         colors={[Colors.light.lila, Colors.light.lightBlue]}
         start={{ x: 0.5, y: 0 }}
         end={{ x: 0.5, y: 1 }}
         style={StyleSheet.absoluteFillObject}
+        pointerEvents="none"
       />
-      <View style={styles.heroHeader}>
+      <LinearGradient
+        colors={[Colors.light.pink, Colors.light.purple]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={[styles.heroGradient, { paddingTop: insets.top + 24 }]}
+      >
         <Text style={styles.brand}>SpeedEvent</Text>
-        <View style={styles.heroActions}>
-          <TouchableOpacity style={styles.heroIconBubble}>
-            <Ionicons name="notifications-outline" size={20} color="#1F1F33" />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.heroIconBubble} onPress={() => setProfileModalVisible(true)}>
-            <LinearGradient
-              colors={[Colors.light.pink, Colors.light.purple]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.profileBubble}
-            >
-              <Ionicons name="person-outline" size={18} color="#FFFFFF" />
-            </LinearGradient>
-          </TouchableOpacity>
-        </View>
-      </View>
+      </LinearGradient>
       <ScrollView contentContainerStyle={styles.container}>
 
         {loading ? (
@@ -479,15 +562,16 @@ export default function PrestataireScreen() {
                     const status = getDayStatus(value);
                     const palette = statusStyles[status];
                     return (
-                      <View
+                      <Pressable
                         key={`day-${value}`}
                         style={[
                           styles.calendarDay,
                           { backgroundColor: palette.backgroundColor, borderColor: palette.borderColor },
                         ]}
+                        onPress={() => openAgendaForDay(value)}
                       >
                         <Text style={[styles.calendarDayText, { color: palette.textColor }]}>{value}</Text>
-                      </View>
+                      </Pressable>
                     );
                   })}
                 </View>
@@ -496,12 +580,16 @@ export default function PrestataireScreen() {
 
             <View style={styles.legendRow}>
               <View style={styles.legendItem}>
-                <View style={[styles.legendDot, { backgroundColor: statusStyles.available.backgroundColor }]} />
-                <Text style={styles.legendLabel}>Disponible</Text>
+                <View style={[styles.legendDot, { backgroundColor: statusStyles.free.backgroundColor }]} />
+                <Text style={styles.legendLabel}>Jour libre</Text>
               </View>
               <View style={styles.legendItem}>
-                <View style={[styles.legendDot, { backgroundColor: statusStyles.unavailable.backgroundColor }]} />
-                <Text style={styles.legendLabel}>Indisponible</Text>
+                <View style={[styles.legendDot, { backgroundColor: statusStyles.booked.backgroundColor }]} />
+                <Text style={styles.legendLabel}>RDV confirmé</Text>
+              </View>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: statusStyles.off.backgroundColor }]} />
+                <Text style={styles.legendLabel}>Jour off</Text>
               </View>
             </View>
 
@@ -521,6 +609,53 @@ export default function PrestataireScreen() {
 
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
       </ScrollView>
+
+      <Modal
+        animationType="slide"
+        visible={agendaVisible && Boolean(selectedDate)}
+        presentationStyle="fullScreen"
+        onRequestClose={closeAgenda}
+      >
+        <SafeAreaView style={styles.agendaContainer}>
+          <LinearGradient
+            colors={[Colors.light.lila, Colors.light.lightBlue]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 0, y: 1 }}
+            style={StyleSheet.absoluteFillObject}
+          />
+          <View style={styles.agendaHeader}>
+            <Pressable onPress={closeAgenda} style={styles.agendaBackButton}>
+              <Ionicons name="chevron-back" size={22} color="#1F1F33" />
+            </Pressable>
+            <Text style={styles.agendaTitle}>{selectedDate ? formatDisplayDate(selectedDate) : 'Agenda'}</Text>
+            <View style={{ width: 44 }} />
+          </View>
+          <ScrollView contentContainerStyle={styles.agendaContent} showsVerticalScrollIndicator={false}>
+            {agendaBookings.length === 0 ? (
+              <View style={styles.emptyAgenda}>
+                <Ionicons name="calendar-outline" size={28} color="#ADB5D6" />
+                <Text style={styles.emptyAgendaTitle}>Aucun rendez-vous confirmé</Text>
+                <Text style={styles.emptyAgendaSubtitle}>
+                  Les créneaux confirmés apparaîtront ici pour cette journée.
+                </Text>
+              </View>
+            ) : (
+              agendaBookings.map((booking) => (
+                <View key={booking.id} style={styles.agendaCard}>
+                  <View style={styles.agendaCardHeader}>
+                    <Text style={styles.agendaService}>{booking.serviceName ?? 'Service confirmé'}</Text>
+                    <Text style={styles.agendaTime}>
+                      {booking.slot?.start ?? '--:--'} - {booking.slot?.end ?? '--:--'}
+                    </Text>
+                  </View>
+                  <Text style={styles.agendaClient}>{booking.clientName}</Text>
+                  <Text style={styles.agendaAddress}>{booking.address || 'Adresse non communiquée'}</Text>
+                </View>
+              ))
+            )}
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
 
       <Modal
         animationType="slide"
@@ -686,10 +821,6 @@ export default function PrestataireScreen() {
           </KeyboardAvoidingView>
         </SafeAreaView>
       </Modal>
-      <PrestataireProfileModal
-        visible={profileModalVisible}
-        onClose={() => setProfileModalVisible(false)}
-      />
     </SafeAreaView>
   );
 }
@@ -697,39 +828,20 @@ export default function PrestataireScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
+    backgroundColor: 'transparent',
   },
-  heroHeader: {
-    paddingTop: 48,
+  heroGradient: {
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
     paddingHorizontal: 24,
-    paddingBottom: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    paddingBottom: 24,
+    marginBottom: 18,
   },
   brand: {
     fontSize: 24,
     fontWeight: '800',
-    color: Colors.light.pink,
-  },
-  heroActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  heroIconBubble: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  profileBubble: {
-    width: '100%',
-    height: '100%',
-    borderRadius: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
+    color: '#FFFFFF',
+    textAlign: 'center',
   },
   container: {
     flex: 1,
@@ -868,6 +980,85 @@ const styles = StyleSheet.create({
   errorText: {
     marginTop: 16,
     color: Colors.light.pink,
+    textAlign: 'center',
+  },
+  agendaContainer: {
+    flex: 1,
+  },
+  agendaHeader: {
+    paddingHorizontal: 24,
+    paddingTop: 48,
+    paddingBottom: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  agendaBackButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2,
+  },
+  agendaTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#1F1F33',
+    textAlign: 'center',
+  },
+  agendaContent: {
+    paddingHorizontal: 24,
+    paddingBottom: 40,
+    gap: 16,
+  },
+  agendaCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 5 },
+  },
+  agendaCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  agendaService: {
+    fontWeight: '700',
+    color: '#1F1F33',
+  },
+  agendaTime: {
+    fontWeight: '600',
+    color: Colors.light.purple,
+  },
+  agendaClient: {
+    color: '#6B6E7F',
+    fontWeight: '600',
+  },
+  emptyAgenda: {
+    marginTop: 80,
+    padding: 24,
+    borderRadius: 24,
+    backgroundColor: '#FFFFFFAA',
+    alignItems: 'center',
+    gap: 8,
+  },
+  emptyAgendaTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1F1F33',
+  },
+  emptyAgendaSubtitle: {
+    color: '#6D6E7F',
     textAlign: 'center',
   },
   modalContainer: {

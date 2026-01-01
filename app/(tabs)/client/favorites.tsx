@@ -1,10 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import React, { useCallback } from 'react';
-import { FlatList, Image, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { FlatList, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useFavorites } from '@/context/FavoritesContext';
 import { Provider } from '@/constants/providers';
+import ClientHeroHeader from '@/components/ClientHeroHeader';
 import { useThemeColors } from '@/hooks/UseThemeColors';
 
 const FavoriteCard = ({
@@ -81,15 +83,11 @@ const FavoritesScreen = () => {
       end={{ x: 0.5, y: 1 }}
       style={styles.gradient}
     >
-      <SafeAreaView style={styles.safeArea}>
-        <View style={styles.header}>
-          <Text style={styles.headerTitle}>Mes favoris</Text>
-          <Text style={styles.headerSubtitle}>
-            {favorites.length === 0
-              ? "Ajoutez des prestataires depuis l'onglet Accueil"
-              : `${favorites.length} prestataire${favorites.length > 1 ? 's' : ''}`}
-          </Text>
-        </View>
+      <SafeAreaView style={styles.safeArea} edges={['left', 'right', 'bottom']}>
+        <ClientHeroHeader
+          title="Mes favoris"
+          subtitle="Ajoutez des prestataires depuis l'onglet Accueil"
+        />
 
         {favorites.length === 0 ? (
           <View style={styles.emptyState}>
@@ -121,33 +119,15 @@ const styles = StyleSheet.create({
   },
   safeArea: {
     flex: 1,
-    paddingHorizontal: 20,
-    paddingTop: 16,
-  },
-  header: {
-    marginTop: 36,
-    marginBottom: 18,
-    alignItems: 'center',
-    paddingHorizontal: 4,
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: '#1F1F33',
-  },
-  headerSubtitle: {
-    marginTop: 4,
-    fontSize: 14,
-    color: '#6B6B7B',
-    textAlign: 'center',
   },
   listContent: {
     paddingBottom: 40,
     paddingTop: 4,
-    paddingHorizontal: 16,
+    paddingHorizontal: 24,
+    gap: 16,
   },
   cardWrapper: {
-    marginBottom: 16,
+    marginBottom: 0,
   },
   card: {
     borderRadius: 24,
@@ -157,6 +137,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 12,
     elevation: 4,
+    width: '100%',
   },
   cardHeaderRow: {
     flexDirection: 'row',

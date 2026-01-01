@@ -1,0 +1,13 @@
+{
+  "name": "functions",
+  "engines": {
+    "node": "20"
+  },
+  "main": "index.js",
+  "dependencies": {
+    "expo-notifications": "~0.32.14",
+    "expo-server-sdk": "^3.7.0",
+    "firebase-admin": "^11.11.1",
+    "firebase-functions": "^4.8.0"
+  }
+}
