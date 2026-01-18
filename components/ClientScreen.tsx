@@ -539,8 +539,15 @@ const ClientScreen = () => {
               return null;
             }
             const provider = mapContactToProvider(id, data);
+            const cityLabels =
+              provider.city.split(',').map((city) => city.trim()).filter(Boolean);
+            const displayCity =
+              cityLabels.length > 2
+                ? `${cityLabels.slice(0, 2).join(', ')}...`
+                : provider.city;
             return {
               ...provider,
+              city: displayCity,
               _minPriceValue: computeMinServicePrice(provider),
               _cityValues: normalizeCities(provider, data),
               _availabilityMeta: normalizeAvailabilityMeta(data.availability),
