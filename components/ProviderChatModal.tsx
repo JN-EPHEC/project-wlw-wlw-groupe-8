@@ -1,9 +1,10 @@
 import { Colors } from '@/constants/Colors';
 import { Provider } from '@/constants/providers';
-import { auth, db } from '@/fireBaseConfig';
+import { auth, db, storage } from '@/fireBaseConfig';
 import { PLACEHOLDER_AVATAR_URI } from '@/utils/providerMapper';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as ImagePicker from 'expo-image-picker';
 import {
   addDoc,
   collection,
@@ -32,6 +33,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 
 type Mode = 'client' | 'provider';
 
@@ -46,6 +48,7 @@ type ProviderChatModalProps = {
 type ChatMessage = {
   id: string;
   text: string;
+  imageUrl?: string | null;
   senderType: Mode;
   createdAt: Date | null;
 };
@@ -84,7 +87,8 @@ const ProviderChatModal = ({
 }: ProviderChatModalProps) => {
   const providerDisplayName = provider.companyName || provider.name;
   const [input, setInput] = useState('');
-  const [sending, setSending] = useState(false);
+  const [sendingMessage, setSendingMessage] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [messagesLoading, setMessagesLoading] = useState(true);
   const [clientProfile, setClientProfile] = useState<ClientProfile | null>(null);
@@ -232,9 +236,15 @@ const ProviderChatModal = ({
       (snapshot) => {
         const nextMessages = snapshot.docs.map((docSnap) => {
           const data = docSnap.data();
+          const textValue = typeof data.text === 'string' ? data.text : '';
+          const imageUrlValue =
+            typeof data.imageUrl === 'string' && data.imageUrl.trim().length > 0
+              ? data.imageUrl
+              : null;
           return {
             id: docSnap.id,
-            text: data.text ?? '',
+            text: textValue,
+            imageUrl: imageUrlValue,
             senderType: data.senderType === 'provider' ? 'provider' : 'client',
             createdAt: data.createdAt?.toDate?.() ?? null,
           } as ChatMessage;
@@ -349,86 +359,107 @@ const ProviderChatModal = ({
     }
   }, [resolvedConversationId, mode, clientProfile, provider, providerDisplayName]);
 
-  const handleSend = useCallback(async () => {
-    const trimmed = input.trim();
-    if (!trimmed || sending) {
-      return;
-    }
-    try {
-      setSending(true);
-      const conversationKey = await getOrCreateConversationId();
-      if (!conversationKey) {
+  const sendChatMessage = useCallback(
+    async ({ text, imageUrl }: { text?: string; imageUrl?: string }) => {
+      const trimmed = text?.trim() ?? '';
+      if (!trimmed && !imageUrl) {
         return;
       }
-      const senderId =
-        mode === 'client'
-          ? clientProfile?.contactId
-          : conversationMeta?.providerId ?? provider.id;
-      if (!senderId) {
-        setError('Impossible de déterminer votre profil.');
+      if (sendingMessage) {
         return;
       }
-      await addDoc(collection(db, 'conversations', conversationKey, 'messages'), {
-        text: trimmed,
-        senderType: mode,
-        senderId,
-        createdAt: serverTimestamp(),
-      });
-      const fallbackClientName =
-        mode === 'client'
-          ? clientProfile?.displayName ?? conversationMeta?.clientName ?? 'Client SpeedEvent'
-          : conversationMeta?.clientName ?? headerTitle ?? 'Client SpeedEvent';
-      const effectiveClientName = conversationMeta?.clientDeleted ? DELETED_USER_LABEL : fallbackClientName;
-      const updates: Record<string, any> = {
-        lastMessage: trimmed,
-        lastMessageAt: serverTimestamp(),
-        lastMessageSenderType: mode,
-        clientName: effectiveClientName,
-        clientAvatar:
+      setSendingMessage(true);
+      try {
+        const conversationKey = await getOrCreateConversationId();
+        if (!conversationKey) {
+          return;
+        }
+        const senderId =
           mode === 'client'
-            ? clientProfile?.avatar ?? null
-            : conversationMeta?.clientAvatar ?? null,
-        providerName: providerDisplayName,
-        providerCompanyName: provider.companyName ?? null,
-        providerCategory: provider.category,
-        providerCity: provider.city,
-        providerPrice: provider.price,
-        providerImage: provider.image,
-        providerPhone: provider.phone,
-        providerLocation: provider.location,
-        providerResponseTime: provider.responseTime,
-        providerDescription: provider.description,
-        providerServices: provider.services ?? [],
-      };
+            ? clientProfile?.contactId
+            : conversationMeta?.providerId ?? provider.id;
+        if (!senderId) {
+          setError('Impossible de déterminer votre profil.');
+          return;
+        }
+        const payload: Record<string, any> = {
+          senderType: mode,
+          senderId,
+          createdAt: serverTimestamp(),
+        };
+        if (trimmed) {
+          payload.text = trimmed;
+        }
+        if (imageUrl) {
+          payload.imageUrl = imageUrl;
+        }
+        await addDoc(collection(db, 'conversations', conversationKey, 'messages'), payload);
+        const fallbackClientName =
+          mode === 'client'
+            ? clientProfile?.displayName ?? conversationMeta?.clientName ?? 'Client SpeedEvent'
+            : conversationMeta?.clientName ?? headerTitle ?? 'Client SpeedEvent';
+        const effectiveClientName = conversationMeta?.clientDeleted ? DELETED_USER_LABEL : fallbackClientName;
+        const preview =
+          trimmed && imageUrl
+            ? `${trimmed} 📷`
+            : trimmed || (imageUrl ? '📷 Photo' : '');
+        const updates: Record<string, any> = {
+          lastMessage: preview,
+          lastMessageAt: serverTimestamp(),
+          lastMessageSenderType: mode,
+          clientName: effectiveClientName,
+          clientAvatar:
+            mode === 'client'
+              ? clientProfile?.avatar ?? null
+              : conversationMeta?.clientAvatar ?? null,
+          providerName: providerDisplayName,
+          providerCompanyName: provider.companyName ?? null,
+          providerCategory: provider.category,
+          providerCity: provider.city,
+          providerPrice: provider.price,
+          providerImage: provider.image,
+          providerPhone: provider.phone,
+          providerLocation: provider.location,
+          providerResponseTime: provider.responseTime,
+          providerDescription: provider.description,
+          providerServices: provider.services ?? [],
+        };
 
-      if (mode === 'client') {
-        updates.unreadByProvider = true;
-        updates.unreadByClient = false;
-      } else {
-        updates.unreadByClient = true;
-        updates.unreadByProvider = false;
+        if (mode === 'client') {
+          updates.unreadByProvider = true;
+          updates.unreadByClient = false;
+        } else {
+          updates.unreadByClient = true;
+          updates.unreadByProvider = false;
+        }
+
+        await updateDoc(doc(db, 'conversations', conversationKey), updates);
+        if (trimmed) {
+          setInput('');
+        }
+        setError(null);
+      } catch (err) {
+        console.error(err);
+        setError("Impossible d'envoyer votre message.");
+      } finally {
+        setSendingMessage(false);
       }
+    },
+    [
+      clientProfile,
+      conversationMeta,
+      getOrCreateConversationId,
+      headerTitle,
+      mode,
+      provider,
+      providerDisplayName,
+      sendingMessage,
+    ],
+  );
 
-      await updateDoc(doc(db, 'conversations', conversationKey), updates);
-      setInput('');
-      setError(null);
-    } catch (err) {
-      console.error(err);
-      setError("Impossible d'envoyer votre message.");
-    } finally {
-      setSending(false);
-    }
-  }, [
-    clientProfile,
-    conversationMeta,
-    getOrCreateConversationId,
-    headerTitle,
-    input,
-    mode,
-    provider,
-    providerDisplayName,
-    sending,
-  ]);
+  const handleSend = useCallback(() => {
+    sendChatMessage({ text: input });
+  }, [input, sendChatMessage]);
 
   const chatPartnerName = useMemo(() => {
     if (mode === 'provider') {
@@ -459,7 +490,7 @@ const ProviderChatModal = ({
 
   const canSend =
     Boolean(input.trim()) &&
-    !sending &&
+    !sendingMessage &&
     (mode === 'client' ? Boolean(clientProfile?.contactId) : Boolean(resolvedConversationId));
 
   const showLoader = profileLoading || conversationLookupLoading;
@@ -514,6 +545,64 @@ const ProviderChatModal = ({
       return (bDate || '').localeCompare(aDate || '');
     });
   }, [sharedRequests]);
+
+  const handlePickImage = useCallback(async () => {
+    if (uploadingImage) {
+      return;
+    }
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        setError("Autorisez l'accès à vos photos pour envoyer des images.");
+        return;
+      }
+      const pickerResult = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: false,
+        quality: 0.8,
+      });
+      if (pickerResult.canceled || !pickerResult.assets?.length) {
+        return;
+      }
+      const asset = pickerResult.assets[0];
+      if (!asset?.uri) {
+        return;
+      }
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        setError('Veuillez vous reconnecter pour envoyer une image.');
+        return;
+      }
+      const conversationKey = await getOrCreateConversationId();
+      if (!conversationKey) {
+        return;
+      }
+      setUploadingImage(true);
+      const response = await fetch(asset.uri);
+      const blob = await response.blob();
+      const extensionSource =
+        asset.fileName?.split('.').pop() ||
+        asset.uri.split('.').pop() ||
+        'jpg';
+      const extension = extensionSource
+        ?.replace(/[^a-zA-Z0-9]/g, '')
+        .toLowerCase() || 'jpg';
+      const fileName = `${Date.now()}-${Math.random().toString(36).slice(2)}.${extension}`;
+      const ownerUid = currentUser.uid;
+      const imageRef = ref(
+        storage,
+        `profiles/${ownerUid}/chats/${conversationKey}/${fileName}`,
+      );
+      await uploadBytes(imageRef, blob);
+      const downloadURL = await getDownloadURL(imageRef);
+      await sendChatMessage({ imageUrl: downloadURL });
+    } catch (err) {
+      console.error(err);
+      setError("Impossible d'envoyer la photo.");
+    } finally {
+      setUploadingImage(false);
+    }
+  }, [getOrCreateConversationId, sendChatMessage, uploadingImage]);
 
   const hasSharedRequests = sortedRequests.length > 0;
   useEffect(() => {
@@ -580,13 +669,19 @@ const ProviderChatModal = ({
               ]}
               renderItem={({ item }) => {
                 const isOwn = item.senderType === mode;
-                return (
-                  <View
-                    style={[
-                      styles.messageBubble,
-                      isOwn ? styles.messageBubbleOwn : styles.messageBubbleOther,
-                    ]}
-                  >
+                const hasText = Boolean(item.text);
+                const hasImage = Boolean(item.imageUrl);
+                const bubbleStyle = [
+                  styles.messageBubble,
+                isOwn ? styles.messageBubbleOwn : styles.messageBubbleOther,
+                hasImage && !hasText ? styles.messageBubbleImageOnly : null,
+              ];
+              return (
+                <View style={bubbleStyle}>
+                  {hasImage ? (
+                    <Image source={{ uri: (item.imageUrl as string) || '' }} style={styles.messageImage} />
+                  ) : null}
+                  {hasText ? (
                     <Text
                       style={[
                         styles.messageText,
@@ -595,22 +690,23 @@ const ProviderChatModal = ({
                     >
                       {item.text}
                     </Text>
-                    {item.createdAt ? (
-                      <Text
-                        style={[
-                          styles.messageDate,
-                          isOwn ? styles.messageDateOwn : styles.messageDateOther,
-                        ]}
-                      >
-                        {item.createdAt.toLocaleTimeString('fr-FR', {
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
-                      </Text>
-                    ) : null}
-                  </View>
-                );
-              }}
+                  ) : null}
+                  {item.createdAt ? (
+                    <Text
+                      style={[
+                        styles.messageDate,
+                        isOwn ? styles.messageDateOwn : styles.messageDateOther,
+                      ]}
+                    >
+                      {item.createdAt.toLocaleTimeString('fr-FR', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </Text>
+                  ) : null}
+                </View>
+              );
+            }}
               ListEmptyComponent={
                 messagesLoading ? (
                   <ActivityIndicator color={Colors.light.purple} />
@@ -626,6 +722,17 @@ const ProviderChatModal = ({
               }
             />
             <View style={styles.inputContainer}>
+              <TouchableOpacity
+                style={[styles.attachButton, uploadingImage && styles.attachButtonDisabled]}
+                onPress={handlePickImage}
+                disabled={uploadingImage}
+              >
+                {uploadingImage ? (
+                  <ActivityIndicator color={Colors.light.purple} />
+                ) : (
+                  <Ionicons name="image-outline" size={20} color={Colors.light.purple} />
+                )}
+              </TouchableOpacity>
               <TextInput
                 style={styles.textInput}
                 value={input}
@@ -639,7 +746,7 @@ const ProviderChatModal = ({
                 onPress={handleSend}
                 disabled={!canSend}
               >
-                {sending ? (
+                {sendingMessage ? (
                   <ActivityIndicator color="#FFFFFF" />
                 ) : (
                   <Ionicons name="send" size={18} color="#FFFFFF" />
@@ -830,6 +937,10 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     maxWidth: '80%',
   },
+  messageBubbleImageOnly: {
+    padding: 0,
+    backgroundColor: 'transparent',
+  },
   messageBubbleOwn: {
     backgroundColor: Colors.light.purple,
     alignSelf: 'flex-end',
@@ -848,6 +959,13 @@ const styles = StyleSheet.create({
   },
   messageTextOther: {
     color: '#1F1F33',
+  },
+  messageImage: {
+    width: 220,
+    height: 220,
+    borderRadius: 18,
+    marginBottom: 8,
+    backgroundColor: '#E5E7EB',
   },
   messageDate: {
     marginTop: 6,
@@ -876,6 +994,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
     marginTop: 16,
+  },
+  attachButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+  },
+  attachButtonDisabled: {
+    opacity: 0.5,
   },
   textInput: {
     flex: 1,
