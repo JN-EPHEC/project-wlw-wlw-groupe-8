@@ -77,7 +77,9 @@ export default function ClientMessagesScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
-  const [providerNameCache, setProviderNameCache] = useState<Record<string, string>>({});
+  const [providerContactCache, setProviderContactCache] = useState<
+    Record<string, { name?: string; image?: string }>
+  >({});
   const [activeChat, setActiveChat] = useState<{ provider: Provider; conversationId?: string | null } | null>(null);
   const [chatVisible, setChatVisible] = useState(false);
   const user = auth.currentUser;
@@ -113,9 +115,9 @@ export default function ClientMessagesScreen() {
     fetchProfile();
   }, [user]);
 
-  const fetchProviderNames = useCallback(
+  const fetchProviderDetails = useCallback(
     async (ids: string[]) => {
-      const missing = ids.filter((id) => id && !providerNameCache[id]);
+      const missing = ids.filter((id) => id && !providerContactCache[id]);
       if (!missing.length) return;
       try {
         const lookups = await Promise.all(
@@ -139,27 +141,36 @@ export default function ClientMessagesScreen() {
                 data.businessName ||
                 data.name ||
                 null;
-              return displayName ? { providerId, displayName } : null;
+              const profilePhoto =
+                typeof data.profilePhoto === 'string' && data.profilePhoto.trim().length > 0
+                  ? data.profilePhoto.trim()
+                  : null;
+              return displayName || profilePhoto
+                ? { providerId, displayName, profilePhoto }
+                : null;
             } catch (err) {
               console.error('Impossible de récupérer le prestataire', providerId, err);
               return null;
             }
           }),
         );
-        const updates: Record<string, string> = {};
+        const updates: Record<string, { name?: string; image?: string }> = {};
         lookups.forEach((result) => {
           if (result) {
-            updates[result.providerId] = result.displayName;
+            updates[result.providerId] = {
+              name: result.displayName ?? undefined,
+              image: result.profilePhoto ?? undefined,
+            };
           }
         });
         if (Object.keys(updates).length > 0) {
-          setProviderNameCache((prev) => ({ ...prev, ...updates }));
+          setProviderContactCache((prev) => ({ ...prev, ...updates }));
         }
       } catch (err) {
         console.error('Erreur lors du chargement des prestataires', err);
       }
     },
-    [providerNameCache],
+    [providerContactCache],
   );
 
   useEffect(() => {
@@ -172,11 +183,7 @@ export default function ClientMessagesScreen() {
         const next = snapshot.docs.map((docSnap) => {
           const data = docSnap.data();
           const provider = toProvider(data);
-          if (
-            provider.id &&
-            (!provider.companyName || provider.companyName === 'Prestataire SpeedEvent') &&
-            !providerNameCache[provider.id]
-          ) {
+          if (provider.id && !providerContactCache[provider.id]) {
             providerIdsToFetch.push(provider.id);
           }
           return {
@@ -189,7 +196,7 @@ export default function ClientMessagesScreen() {
         });
         setConversations(next);
         if (providerIdsToFetch.length > 0) {
-          fetchProviderNames(providerIdsToFetch);
+          fetchProviderDetails(providerIdsToFetch);
         }
         setLoading(false);
       },
@@ -200,7 +207,7 @@ export default function ClientMessagesScreen() {
       },
     );
     return () => unsubscribe();
-  }, [contactId, fetchProviderNames, providerNameCache]);
+  }, [contactId, fetchProviderDetails, providerContactCache]);
 
   const markConversationAsRead = useCallback(async (conversationId?: string | null) => {
     if (!conversationId) return;
@@ -211,15 +218,30 @@ export default function ClientMessagesScreen() {
     }
   }, []);
 
+  const resolveProviderWithContact = useCallback(
+    (provider: Provider): Provider => {
+      const overrides = provider.id ? providerContactCache[provider.id] : undefined;
+      if (!overrides) return provider;
+      return {
+        ...provider,
+        name: overrides.name ?? provider.name,
+        companyName: overrides.name ?? provider.companyName,
+        image: overrides.image ?? provider.image,
+      };
+    },
+    [providerContactCache],
+  );
+
   const handleOpenChat = useCallback(
     (provider: Provider, conversationId?: string | null) => {
       if (conversationId) {
         markConversationAsRead(conversationId);
       }
-      setActiveChat({ provider, conversationId });
+      const resolvedProvider = resolveProviderWithContact(provider);
+      setActiveChat({ provider: resolvedProvider, conversationId });
       setChatVisible(true);
     },
-    [markConversationAsRead],
+    [markConversationAsRead, resolveProviderWithContact],
   );
 
   const handleCloseChat = useCallback(() => {
@@ -230,14 +252,17 @@ export default function ClientMessagesScreen() {
   const renderConversation = useCallback(
     ({ item }: { item: ConversationSummary }) => {
       const providerId = item.provider.id;
+      const providerDetails = providerContactCache[providerId];
       const displayName =
-        providerNameCache[providerId] ||
+        providerDetails?.name ||
         item.provider.companyName ||
         item.provider.name ||
         'Prestataire SpeedEvent';
+      const displayImage =
+        providerDetails?.image || item.provider.image || PLACEHOLDER_AVATAR_URI;
       return (
         <TouchableOpacity style={styles.card} onPress={() => handleOpenChat(item.provider, item.id)}>
-          <Image source={{ uri: item.provider.image || PLACEHOLDER_AVATAR_URI }} style={styles.avatar} />
+          <Image source={{ uri: displayImage }} style={styles.avatar} />
           <View style={styles.cardContent}>
             <View style={styles.cardHeader}>
               <Text style={styles.providerName}>{displayName}</Text>
@@ -251,7 +276,7 @@ export default function ClientMessagesScreen() {
         </TouchableOpacity>
       );
     },
-    [handleOpenChat, providerNameCache],
+    [handleOpenChat, providerContactCache],
   );
 
   const renderGradientWrapper = (children: React.ReactNode) => (
@@ -303,6 +328,7 @@ export default function ClientMessagesScreen() {
           renderItem={renderConversation}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
+          extraData={providerContactCache}
         />
       )}
 
