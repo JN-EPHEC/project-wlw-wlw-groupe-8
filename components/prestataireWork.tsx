@@ -48,6 +48,7 @@ export default function PrestataireWork({
   "Hôte / Hôtesse d’accueil",
   "Location de matériel (tables, chaises, mobilier…)",
   "Location de tente",
+  "Location de salle de fête",
   "Chauffeur privé",
   "Animation enfants",
   "Maquilleuse professionnelle",

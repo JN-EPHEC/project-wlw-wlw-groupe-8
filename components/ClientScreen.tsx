@@ -49,6 +49,7 @@ const jobOptions = [
   "Hôte / Hôtesse d’accueil",
   "Location de matériel (tables, chaises, mobilier…)",
   "Location de tente",
+  "Location de salle de fête",
   "Chauffeur privé",
   "Animation enfants",
   "Maquilleuse professionnelle",
@@ -217,7 +218,7 @@ const normalizeAvailabilityMeta = (value: any): ProviderAvailabilityMeta | null 
   dayKeyMap.forEach((key) => {
     const entry = weeklyRaw?.[key];
     if (entry && typeof entry === 'object') {
-      const slots = Array.isArray(entry.slots)
+      const slotsFromEntry = Array.isArray(entry.slots)
         ? entry.slots
             .map((slot: any) =>
               slot &&
@@ -228,9 +229,25 @@ const normalizeAvailabilityMeta = (value: any): ProviderAvailabilityMeta | null 
             )
             .filter((slot: any): slot is { start: string; end: string } => Boolean(slot))
         : [];
+      const fallbackStart =
+        typeof entry.start === 'string' && entry.start.trim().length > 0 ? entry.start.trim() : null;
+      const fallbackEnd =
+        typeof entry.end === 'string' && entry.end.trim().length > 0 ? entry.end.trim() : null;
+      const normalizedSlots =
+        slotsFromEntry.length > 0
+          ? slotsFromEntry
+          : fallbackStart && fallbackEnd
+          ? [{ start: fallbackStart, end: fallbackEnd }]
+          : [];
+      const rawActive =
+        typeof entry.active === 'boolean'
+          ? entry.active
+          : entry.active === undefined || entry.active === null
+          ? true
+          : Boolean(entry.active);
       weekly[key] = {
-        active: Boolean(entry.active) && slots.length > 0,
-        slots,
+        active: Boolean(rawActive) && normalizedSlots.length > 0,
+        slots: normalizedSlots,
       };
     }
   });
@@ -986,8 +1003,8 @@ const ClientScreen = () => {
               </TouchableOpacity>
             </View>
             <View style={styles.weekdayRow}>
-              {weekdays.map((day) => (
-                <Text key={day} style={styles.weekdayText}>
+              {weekdays.map((day, index) => (
+                <Text key={`${day}-${index}`} style={styles.weekdayText}>
                   {day}
                 </Text>
               ))}
